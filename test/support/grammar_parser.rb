@@ -289,5 +289,38 @@ RSpec.shared_examples 'a grammar parser' do
 	    parser.push klass
 	    expect(parser.parse('abc,abc')).to eq([klass.grammar.new('abc', [nested_klass.new(',', klass.grammar.new('abc', []))])])
 	end
+
+	context 'Mutual Recursion' do
+	    it 'must match a mutually recursive Alternation with nested Concatenations' do
+		klassA = nil
+		klassB = nil
+		klass = Grammar::Recursion.new.tap do |wrapper|
+		    klassA = Grammar::Concatenation.with('xyz', wrapper)
+		    klassB = Grammar::Concatenation.with('uvw', wrapper)
+		    wrapper.grammar = Grammar::Alternation.with('abc', 'def', klassA, klassB)
+		    wrapper.freeze
+		end
+
+		parser.push klass
+		expect(parser.parse('abc')).to eq([klass.grammar.new('abc')])
+		expect(parser.parse('def')).to eq([klass.grammar.new('def')])
+		expect(parser.parse('xyzabc')).to eq([klass.grammar.new(klassA.new('xyz', klass.grammar.new('abc')))])
+		expect(parser.parse('uvwabc')).to eq([klass.grammar.new(klassA.new('uvw', klass.grammar.new('abc')))])
+	    end
+
+	    it 'must match a mutually recursive Concatenation with nested Alternations' do
+		klassA = nil
+		klassB = nil
+		klass = Grammar::Recursion.new.tap do |wrapper|
+		    klassA = Grammar::Alternation.with('def', wrapper)
+		    klassB = Grammar::Alternation.with('uvw', wrapper)
+		    wrapper.grammar = Grammar::Concatenation.with('abc', klassA, klassB, 'xyz')
+		    wrapper.freeze
+		end
+
+		parser.push klass
+		expect(parser.parse('abcdefuvwxyz')).to eq([klass.grammar.new('abc', klassA.new('def'), klassB.new('uvw'), 'xyz')])
+	    end
+	end
     end
 end
