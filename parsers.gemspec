@@ -5,12 +5,12 @@ Gem::Specification.new do |spec|
     spec.name          = "parsers"
     spec.version       = '0'
     spec.authors       = ["Brandon Fosdick"]
-    spec.email         = ["bfosdick@gmail.com"]
+    spec.email         = ["bfoz@bfoz.net"]
 
     spec.summary       = 'Various parsers written in Ruby'
     spec.description   = 'A collection of parser implementations'
     spec.homepage      = 'https://github.com/bfoz/parsers-ruby'
-    spec.license       = 'BSD'
+    spec.license       = '0BSD'
 
     spec.files         = `git ls-files -z`.split("\x0").reject do |f|
 	f.match(%r{^(test|spec|features)/})
