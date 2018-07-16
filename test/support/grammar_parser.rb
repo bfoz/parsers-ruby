@@ -23,7 +23,7 @@ RSpec.shared_examples 'a grammar parser' do
 	outer_list = Grammar::Concatenation.with(inner_list, outer_repeat)
 
 	parser.push outer_list
-	expect(parser.parse('a _ a')).to eq([outer_list.new(inner_list.new('a', [], location:0), [outer_repeat.new(' _ ', inner_list.new('a', [], location:4), location:1)], location:0)])
+	expect(parser.parse('a _ a')).to eq([outer_list.new(inner_list.new('a', [], location:0), [outer_repeat.grammar.new(' _ ', inner_list.new('a', [], location:4), location:1)], location:0)])
     end
 
     context 'Grammar::Alternation' do
@@ -305,7 +305,7 @@ RSpec.shared_examples 'a grammar parser' do
 		expect(parser.parse('abc')).to eq([klass.grammar.new('abc')])
 		expect(parser.parse('def')).to eq([klass.grammar.new('def')])
 		expect(parser.parse('xyzabc')).to eq([klass.grammar.new(klassA.new('xyz', klass.grammar.new('abc')))])
-		expect(parser.parse('uvwabc')).to eq([klass.grammar.new(klassA.new('uvw', klass.grammar.new('abc')))])
+		expect(parser.parse('uvwabc')).to eq([klass.grammar.new(klassB.new('uvw', klass.grammar.new('abc')))])
 	    end
 
 	    it 'must match a mutually recursive Concatenation with nested Alternations' do
