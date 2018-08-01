@@ -109,7 +109,11 @@ module Parsers
 			end
 		    end
 
-		    result
+		    if pattern.optional? and (result.length <= 1)
+			result.first
+		    else
+			result
+		    end
 
 		when Grammar::Recursion
 		    visit(input, pattern.grammar)

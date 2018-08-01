@@ -234,6 +234,22 @@ RSpec.shared_examples 'a grammar parser' do
 		expect(parser.parse('abdefbdef')).to eq([klass.new('a', [repeat_klass.new('b', 'def', location:1), repeat_klass.new('b', 'def', location:5)], location:0)])
 	    end
 	end
+
+	context 'Optional' do
+	    it 'must match an optional nested grammar' do
+		klass = Grammar::Concatenation.with('abc')
+
+		parser.push klass.optional
+		expect(parser.parse('abc')).to eq([klass.new('abc')])
+	    end
+
+	    it 'must not match a missing optional nested grammar' do
+		klass = Grammar::Concatenation.with('abc')
+
+		parser.push klass.optional
+		expect(parser.parse('')).to eq(nil)
+	    end
+	end
     end
 
     context 'Grammar::Recursion' do
