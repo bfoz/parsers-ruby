@@ -61,7 +61,7 @@ module Parsers
 		    position = input.pos
 		    matches = pattern.elements.map do |element|
 			a = visit(input, element)
-			if not a and not element.is_a?(Grammar::Recursion)
+			if not a and not element.is_a?(Grammar::Recursion) and not (element.respond_to?(:optional?) and element.optional?)
 			    input.pos = position 	# Backtracking
 			    return
 			end

@@ -91,6 +91,13 @@ RSpec.shared_examples 'a grammar parser' do
 	    parser.push klass
 	    expect(parser.parse('abcd')).to eq([klass.new('a', bcd_efg.new('bcd', location:1), location:0)])
 	end
+
+	it 'must match a Concatenation with a nested optional when the nested optional fails' do
+	    optional_klass = Grammar::Concatenation.with(/[0-9]+/).optional
+	    klass = Grammar::Concatenation.with('a', optional_klass, 'z')
+	    parser.push klass
+	    expect(parser.parse('az')).to eq([klass.new('a', nil, 'z')])
+	end
     end
 
     context 'Grammar::Repetition' do
