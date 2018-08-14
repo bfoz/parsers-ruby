@@ -96,7 +96,7 @@ module Parsers
 			    end
 		    	end
 		    else
-			# No max limit, so go until failure
+			# No max limit, so go until failure or EOS
 			loop do
 			    position = input.pos
 			    a = visit(input, pattern.grammar)
@@ -106,6 +106,7 @@ module Parsers
 				input.pos = position 	# Backtrack
 				break			# Failure
 			    end
+			    break if input.eos?
 			end
 		    end
 

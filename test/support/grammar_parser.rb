@@ -230,6 +230,12 @@ RSpec.shared_examples 'a grammar parser' do
 
 		expect(parser.parse('abcbdefbdef')).to eq([klass.new(prefix_klass.new('abc', location:0), [repeat_klass.new('b', 'def', location:3), repeat_klass.new('b', 'def', location:7)], location:0)])
 	    end
+
+	    it 'must match a Concatenation with a nested optional Regexp that matches nothing' do
+		klass = Grammar::Concatenation.with(/ ?/).any
+		parser.push klass
+		expect(parser.parse('')).to eq([[klass.grammar.new('')]])
+	    end
 	end
 
 	context 'at least 1' do
