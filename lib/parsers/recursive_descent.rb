@@ -46,10 +46,17 @@ module Parsers
 		    position_after_longest_match = _position
 		    pattern.elements.each do |element|
 			input.pos = _position
-			match = visit(input, element)
-			if match and (input.pos > position_after_longest_match)
-			    position_after_longest_match = input.pos
-			    longest_match = match
+			if element.is_a?(String) and element.empty?
+			    if longest_match.nil?
+				position_after_longest_match = input.pos
+				longest_match = element
+			    end
+			else
+			    match = visit(input, element)
+			    if match and (input.pos > position_after_longest_match)
+				position_after_longest_match = input.pos
+				longest_match = match
+			    end
 			end
 		    end
 		    if longest_match

@@ -56,6 +56,12 @@ RSpec.shared_examples 'a grammar parser' do
 	    expect(parser.parse('abc')).to eq([klass.new(abc_klass.new('abc', location:0), location:0)])
 	    expect(parser.parse('def')).to eq([klass.new('def', location:0)])
 	end
+
+	it 'must match an empty string alternate' do
+	    klass = Grammar::Alternation.with('abc', '')
+	    parser.push klass
+	    expect(parser.parse('xyz')).to eq([klass.new('')])
+	end
     end
 
     context 'Grammar::Concatenation' do
@@ -97,6 +103,12 @@ RSpec.shared_examples 'a grammar parser' do
 	    klass = Grammar::Concatenation.with('a', optional_klass, 'z')
 	    parser.push klass
 	    expect(parser.parse('az')).to eq([klass.new('a', nil, 'z')])
+	end
+
+	it 'must match a nested empty string' do
+	    klass = Grammar::Concatenation.with('a', '', 'b')
+	    parser.push klass
+	    expect(parser.parse('ab')).to eq([klass.new('a', '', 'b')])
 	end
     end
 
