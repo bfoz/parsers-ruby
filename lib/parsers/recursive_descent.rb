@@ -6,8 +6,9 @@ module Parsers
     class RecursiveDescent
 	attr_reader :patterns
 
-	def initialize
+	def initialize(grammar=nil)
 	    @patterns = []
+	    self.push(grammar) if grammar
 	end
 
 	def parse(input)
