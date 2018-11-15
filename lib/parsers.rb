@@ -1,4 +1,5 @@
 require_relative 'parsers/bnf'
+require_relative 'parsers/ebnf'
 require_relative 'parsers/recursive_descent'
 
 module Parsers
@@ -13,6 +14,6 @@ module Parsers
     # @param path [IO,String]	the file, or IO-like object, to read the grammar from
     # @return [Grammar] the grammer contained in the file given by _path_
     def self.read(path)
-	BNF.read(path)
+	BNF.read(path) or EBNF.read(path)
     end
 end
