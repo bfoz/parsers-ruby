@@ -54,6 +54,30 @@ module Parsers
 	    end
 	end
 
+	class RHS
+	    # @return [Array<List>]
+	    def to_a
+		[self.first, *self.last.map(&:last)]
+	    end
+	end
+
+	class Rule
+	    # @return [RHS]
+	    def rhs
+		self[-2]
+	    end
+
+	    def rule_name
+		self.first.to_s
+	    end
+	end
+
+	class Rules
+	    def to_a
+		[self.first, *self.last.map(&:last)]
+	    end
+	end
+
 	class Terminal
 	    def to_s
 		self.match[1].reduce('') {|memo, character| memo + character.to_s }
@@ -77,43 +101,92 @@ module Parsers
 
 	    rules = {}
 	    reference_counts = Hash.new(0)
+	    recursive_rules = {}
 
-	    bnf_rules = [ebnf_syntax.first, *ebnf_syntax.last.map(&:last)]	# Flatten the parse tree
-	    while not bnf_rules.empty?
-		_rules = bnf_rules.reject do |_rule|
-		    rule_name = _rule.first.to_s
-		    expression = _rule[-2]
+	    bnf_rules = ebnf_syntax.to_a	# Flatten the parse tree
 
-		    converted_expression = self.convert_rhs(rule_name, expression, rules, reference_counts)
-		    if converted_expression
-			reference_counts[rule_name] = 0 unless reference_counts.key?(rule_name) 	# Ensure that every rule has an entry (for the sorting step below)
-			rules[rule_name] = converted_expression
-		    end
-		end
+	    # Find all of the grammar's rule names ahead of time to make it easier to detect unresolved rule references
+	    bnf_rules.each {|rule| rules[rule.rule_name] = nil}
 
-		break if _rules.length == bnf_rules.length	# Bail out if none of the rules could be processed
-
-		bnf_rules = _rules
-	    end
+	    # Process the grammar to handle the low-hanging fruit
+	    bnf_rules = self.convert_rules(bnf_rules, rules:rules, reference_counts:reference_counts, recursions:recursive_rules)
 
 	    # At this point, all of the non-recursive and direct-recursive rules have been handled
 	    #  The only rules that weren't fully processed are the ones that either have dangling references, or are indirectly recursive
 
+	    # Rule references that aren't in the grammar have been marked with a nil-value in the reference_counts hash
+	    unresolved_references = reference_counts.select {|k,v| v.nil?}
+	    unless unresolved_references.empty?
+		puts "UNRESOLVED REFERENCES!!! #{unresolved_references.length}"
+	    end
+
+	    # The unprocessed rules that don't correspond to nil-valued reference counts are indirectly-recursive
+	    bnf_rules = bnf_rules.select {|rule| reference_counts[rule.rule_name]}
+	    bnf_rules.reduce([]) do |paths, rule|
+		rule_name = rule.rule_name
+
+		# Start a new path for this rule
+		paths.push([rule_name])
+
+		# Find all of the rule references in the rule that aren't directly recursive
+		references = rule.rhs.to_a.flat_map do |list|
+		    [list.first, *list.last.map(&:last)].map do |expression|
+			if EBNF::Identifier === expression.match
+			    reference_name = expression.to_s
+			    reference_name if reference_name != rule_name
+			end
+		    end
+		end.compact.uniq
+
+		# Expand and append, then return the new paths as the new memo object
+		paths.flat_map do |path|
+		    next [path] unless path.last == rule_name
+		    references.map do |reference|
+			if reference == path.first
+			    recursive_rules[reference] ||= Grammar::Recursion.new()
+			end
+			[*path, reference]
+		    end
+		end
+	    end
+
+	    # Now convert the indirectly-recursive rules
+	    self.convert_rules(bnf_rules, rules:rules, reference_counts:reference_counts, recursions:recursive_rules)
+
+	    # Fixup the recursion proxies
+	    recursive_rules.each do |reference_name, recursion|
+		recursion.grammar = rules[reference_name]
+	    end
+
 	    # Sort the resulting Hash to move the root-most rules to the beginning
-	    #  Ideally, rules.values.first will be the root rule
-	    reference_counts.sort_by {|k,v| v}.map do |rule_name, _|
-		[rule_name, rules[rule_name]]
-	    end.to_h
+	    #  Ideally, rules.first will be the root rule
+	    rules.sort_by {|k,v| reference_counts[k]}.to_h
+	end
+
+	# NOTE This modifies its arguments
+	def self.convert_rules(grammar, rules:, reference_counts:, recursions:)
+	    while not grammar.empty?
+		_rules = grammar.reject do |_rule|
+		    rule_name = _rule.rule_name
+		    rules[rule_name] ||= self.convert_rhs(rule_name, _rule.rhs, rules, reference_counts, recursions:recursions)
+		end
+
+		break if _rules.length == grammar.length	# Bail out if none of the rules could be processed
+
+		grammar = _rules
+	    end
+
+	    grammar
 	end
 
 	# @param rules [Hash]
-	def self.convert_rhs(rule_name, rhs, rules, reference_counts)
-	    flattened_rhs = [rhs.first, *rhs.last.map(&:last)]
+	# @return [Grammar::Alternation, Grammar::Concatenation]	the resulting Grammar element, or nil if the RHS couldn't be converted
+	def self.convert_rhs(rule_name, rhs, rules, reference_counts, recursions:)
 	    is_recursive = false
 
 	    # Each element of the RHS is potentially a Concatenation
 	    # The RHS itself is potentially an Alternation
-	    mapped_rhs = flattened_rhs.map.with_index do |_list, i|
+	    mapped_rhs = rhs.to_a.map.with_index do |_list, i|
 		flattened_list = [_list.first, *_list.last.map(&:last)]
 		mapped_list = flattened_list.map.with_index do |_expression, j|
 		    if EBNF::Terminal === _expression.match
@@ -121,12 +194,15 @@ module Parsers
 			_expression.to_s
 		    elsif EBNF::Identifier === _expression.match
 			# The Expression is a rule-reference, which needs to be mapped to the referenced rule
+
 			reference_name = _expression.to_s
-			if rules[reference_name]
+
+			# NOTE The order of this conditional is important
+			if rules[reference_name] and not recursions.key?(reference_name)
 			    # If the referenced rule has already been converted, just use it
 			    reference_counts[reference_name] += 1
 			    rules[reference_name]
-			elsif rule_name == reference_name
+			elsif rule_name == reference_name	# Direct recursive?
 			    if j.zero?
 				is_recursive = [i, :left]
 			    elsif j == (flattened_list.length - 1)
@@ -141,19 +217,26 @@ module Parsers
 				is_recursive = [i, :center]
 			    end
 			    _expression
+			elsif recursions.key?(reference_name)
+			    # If the referenced rule is known to be indirectly-recursive, use the recursion proxy for it
+			    reference_counts[reference_name] += 1
+			    recursions[reference_name]
+			elsif not rules.key?(reference_name)
+			    # WARNING This is a hack for marking rule references that don't match any of the rules in the grammar
+			    reference_counts[rule_name] ||= nil
 			else
 			    # The referenced rule hasn't been converted, so bail out and try again later
 			    return
 			end
 		    elsif EBNF::RHS::Expression::Group === _expression.match
-			self.convert_rhs(rule_name, _expression.match[1], rules, reference_counts)
+			self.convert_rhs(rule_name, _expression.match[1], rules, reference_counts, recursions:recursions)
 		    elsif EBNF::RHS::Expression::Optional === _expression.match
-			inner_rhs = self.convert_rhs(rule_name, _expression.match[1], rules, reference_counts)
+			inner_rhs = self.convert_rhs(rule_name, _expression.match[1], rules, reference_counts, recursions:recursions)
 			if inner_rhs
 			    Grammar::Repetition.optional(inner_rhs)
 			end
 		    elsif EBNF::RHS::Expression::Repetition === _expression.match
-			inner_rhs = self.convert_rhs(rule_name, _expression.match[1], rules, reference_counts)
+			inner_rhs = self.convert_rhs(rule_name, _expression.match[1], rules, reference_counts, recursions:recursions)
 			if inner_rhs
 			    Grammar::Repetition.any(inner_rhs)
 			end

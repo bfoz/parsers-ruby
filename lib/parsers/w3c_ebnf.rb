@@ -39,9 +39,45 @@ module Parsers
 
 	Rules = concatenation(Rule, concatenation(/([[:blank:]]*\n)*/, Rule).any)
 
+	class RHS
+	    # @return [Array<List>]
+	    def to_a
+		[self.first, *self.last.map(&:last)]
+	    end
+	end
+
+	class RHS::Expression
+	    def to_a
+		# Because of weirdness in the way that I implemented recursion in Grammar, RHS::Expression will either be an Array or a simple match
+		#  FIXME I really should fix Grammar such that this is always an Alternation match, but it's not a simple fix
+		if self.respond_to?(:first) && self.respond_to?(:last)
+		    [self.first, *self.last]
+		else
+		    [self]
+		end
+	    end
+	end
+
 	class RHS::Expression::Terminal
 	    def to_s
 		self.match[1].to_s
+	    end
+	end
+
+	class Rule
+	    # @return [RHS]
+	    def rhs
+		self.last
+	    end
+
+	    def rule_name
+		self.first.to_s
+	    end
+	end
+
+	class Rules
+	    def to_a
+		[self.first, *self.last.map(&:last)]
 	    end
 	end
 
@@ -62,36 +98,81 @@ module Parsers
 
 	    rules = {}
 	    reference_counts = Hash.new(0)
+	    recursive_rules = {}
 
-	    flattened_rules = [ebnf_syntax.first, *ebnf_syntax.last.map(&:last)]	# Flatten the parse tree
-	    loop do
-		_rules = flattened_rules.reject do |_rule|
-		    rule_name = _rule.first.to_s
-		    expression = _rule.last
+	    bnf_rules = ebnf_syntax.to_a	# Flatten the parse tree
 
-		    converted_expression = self.convert_rhs(rule_name, expression, rules, reference_counts)
-		    if converted_expression
-			reference_counts[rule_name] = 0 unless reference_counts.key?(rule_name) 	# Ensure that every rule has an entry (for the sorting step below)
-			rules[rule_name] = converted_expression
-		    end
-		end
+	    # Find all of the grammar's rule names ahead of time to make it easier to detect unresolved rule references
+	    bnf_rules.each {|rule| rules[rule.rule_name] = nil}
 
-		break if _rules.length == flattened_rules.length	# Bail out if none of the rules could be processed
-
-		flattened_rules = _rules
-	    end
+	    # Process the grammar to handle the low-hanging fruit
+	    bnf_rules = self.convert_rules(bnf_rules, rules:rules, reference_counts:reference_counts, recursions:recursive_rules)
 
 	    # At this point, all of the non-recursive and direct-recursive rules have been handled
 	    #  The only rules that weren't fully processed are the ones that either have dangling references, or are indirectly recursive
 
+	    # Rule references that aren't in the grammar have been marked with a nil-value in the reference_counts hash
+
+	    # The unprocessed rules that don't correspond to nil-valued reference counts are indirectly-recursive
+	    bnf_rules = bnf_rules.select {|rule| reference_counts[rule.rule_name]}
+	    bnf_rules.reduce([]) do |paths, rule|
+		rule_name = rule.rule_name
+
+		# Start a new path for this rule
+		paths.push([rule_name])
+
+		# Find all of the rule references in the rule that aren't directly recursive
+		references = rule.rhs.to_a.flat_map do |list|
+		    [list.first, *list.last.map(&:last)].map do |expression|
+			if W3C_EBNF::Identifier === expression.to_a.first.match
+			    reference_name = expression.to_a.first.to_s
+			    reference_name if reference_name != rule_name
+			end
+		    end
+		end.compact.uniq
+
+		# Expand and append, then return the new paths as the new memo object
+		paths.flat_map do |path|
+		    next [path] unless path.last == rule_name
+		    references.map do |reference|
+			if reference == path.first
+			    recursive_rules[reference] ||= Grammar::Recursion.new()
+			end
+			[*path, reference]
+		    end
+		end
+	    end
+
+	    # Now convert the indirectly-recursive rules
+	    self.convert_rules(bnf_rules, rules:rules, reference_counts:reference_counts, recursions:recursive_rules)
+
+	    # Fixup the recursion proxies
+	    recursive_rules.each do |reference_name, recursion|
+		recursion.grammar = rules[reference_name]
+	    end
+
 	    # Sort the resulting Hash to move the root-most rules to the beginning
-	    #  Ideally, rules.values.first will be the root rule
-	    reference_counts.sort_by {|k,v| v}.map do |rule_name, _|
-		[rule_name, rules[rule_name]]
-	    end.to_h
+	    #  Ideally, rules.first will be the root rule
+	    rules.sort_by {|k,v| reference_counts[k]}.to_h
 	end
 
-	def self.convert_expression(expression, list_index:, expression_index:, rule_name:, reference_counts:, rules:, flattened_list:nil, is_recursive:nil)
+	# NOTE This modifies its arguments
+	def self.convert_rules(grammar, rules:, reference_counts:, recursions:)
+	    while not grammar.empty?
+		_rules = grammar.reject do |_rule|
+		    rule_name = _rule.rule_name
+		    rules[rule_name] ||= self.convert_rhs(rule_name, _rule.rhs, rules, reference_counts, recursions:recursions)
+		end
+
+		break if _rules.length == grammar.length	# Bail out if none of the rules could be processed
+
+		grammar = _rules
+	    end
+
+	    grammar
+	end
+
+	def self.convert_expression(expression, list_index:, expression_index:, rule_name:, reference_counts:, rules:, recursions:, flattened_list:nil, is_recursive:nil)
 	    # Because of weirdness in the way that I implemented recursion in Grammar, RHS::Expression will either be an Array or a simple match
 	    #  FIXME I really should fix Grammar such that this is always an Alternation match, but it's not a simple fix
 	    if expression.respond_to?(:first) && expression.respond_to?(:last)
@@ -103,7 +184,7 @@ module Parsers
 	    # More weirdness...
 	    # if W3C_EBNF::RHS::Expression::Repetition === flattened_expression.match
 	    if /[\?\*\+]/ =~ flattened_expression.last.match.to_s
-		inner_rhs = self.convert_expression(flattened_expression.first, list_index:list_index, expression_index:0, rules:rules, reference_counts:reference_counts, rule_name:rule_name)
+		inner_rhs = self.convert_expression(flattened_expression.first, list_index:list_index, expression_index:0, rules:rules, reference_counts:reference_counts, rule_name:rule_name, recursions:recursions)
 		if inner_rhs
 		    case flattened_expression.last.match.to_s
 			when '?' then Grammar::Repetition.optional(inner_rhs)
@@ -116,8 +197,11 @@ module Parsers
 		flattened_expression.first.to_s
 	    elsif W3C_EBNF::Identifier === flattened_expression.first.match
 		# The Expression is a rule-reference, which needs to be mapped to the referenced rule
+
 		reference_name = flattened_expression.first.to_s
-		if rules[reference_name]
+
+		# NOTE The order of this conditional is important
+		if rules[reference_name] and not recursions.key?(reference_name)
 		    # If the referenced rule has already been converted, just use it
 		    reference_counts[reference_name] += 1
 		    rules[reference_name]
@@ -136,27 +220,34 @@ module Parsers
 			is_recursive = [list_index, :center]
 		    end
 		    [flattened_expression.first, is_recursive]
+		elsif recursions.key?(reference_name)
+		    # If the referenced rule is known to be indirectly-recursive, use the recursion proxy for it
+		    reference_counts[reference_name] += 1
+		    recursions[reference_name]
+		elsif not rules.key?(reference_name)
+		    # WARNING This is a hack for marking rule references that don't match any of the rules in the grammar
+		    puts "WARNING: Unknown rule: #{reference_name}"
+		    reference_counts[rule_name] ||= nil
 		else
 		    # The referenced rule hasn't been converted, so bail out and try again later
 		    return
 		end
 	    elsif W3C_EBNF::RHS::Expression::Group === flattened_expression.first.match
-		self.convert_rhs(rule_name, flattened_expression.first.match[1], rules, reference_counts)
+		self.convert_rhs(rule_name, flattened_expression.first.match[1], rules, reference_counts, recursions:recursions)
 	    end
 	end
 
 	# @param rules [Hash]
-	def self.convert_rhs(rule_name, rhs, rules, reference_counts)
-	    flattened_rhs = [rhs.first, *rhs.last.map(&:last)]
+	def self.convert_rhs(rule_name, rhs, rules, reference_counts, recursions:)
 	    is_recursive = false
 
 	    # Each element of the RHS is potentially a Concatenation
 	    # The RHS itself is potentially an Alternation
-	    mapped_rhs = flattened_rhs.map.with_index do |_list, i|
+	    mapped_rhs = rhs.to_a.map.with_index do |_list, i|
 		flattened_list = [_list.first, *_list.last.map(&:last)]
 
 		mapped_list = flattened_list.map.with_index do |_expression, j|
-		    result = convert_expression(_expression, list_index:i, expression_index:j, rule_name:rule_name, rules:rules, reference_counts:reference_counts, flattened_list:flattened_list, is_recursive:is_recursive)
+		    result = convert_expression(_expression, list_index:i, expression_index:j, rule_name:rule_name, rules:rules, reference_counts:reference_counts, flattened_list:flattened_list, is_recursive:is_recursive, recursions:recursions)
 		    if result.nil?
 			# This happens when convert_expression() can't look up a forward rule reference
 			#  The only thing that can be done about it is to bail out and try again later

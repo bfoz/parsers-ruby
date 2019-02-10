@@ -28,8 +28,10 @@ module Parsers
 	# <rule-name>      ::= <letter> | <rule-name> <rule-char>
 	RuleName = /[a-zA-Z0-9-]*/
 
+	Identifier = concatenation('<', RuleName, '>')
+
 	# <term>           ::= <literal> | "<" <rule-name> ">"
-	Terminal = Literal | concatenation('<', RuleName, '>')
+	Terminal = Literal | Identifier
 
 	# <opt-whitespace> ::= " " <opt-whitespace> | ""
 	OptWhitespace = /[ \t\f\v]*/
@@ -47,10 +49,32 @@ module Parsers
 
 	# <rule>           ::= <opt-whitespace> "<" <rule-name> ">" <opt-whitespace> "::=" <opt-whitespace> <expression> <line-end>
 	# <line-end>       ::= <opt-whitespace> <EOL> | <line-end> <line-end>
-	Rule = concatenation('<', RuleName, '>', OptWhitespace, '::=', OptWhitespace, Expression)
+	Rule = concatenation(Identifier, OptWhitespace, '::=', OptWhitespace, Expression)
 
 	# <syntax>         ::= <rule> | <rule> <syntax>
 	Syntax = concatenation(/\s*/, Rule, concatenation(/( *[\r]?\n)+/, Rule).any)
+
+	class Expression
+	    def to_a
+		[self.first, *self.last.map(&:last)]
+	    end
+	end
+
+	class Rule
+	    def rhs
+		self.last
+	    end
+
+	    def rule_name
+		self.first[1]
+	    end
+	end
+
+	class Syntax
+	    def to_a
+		[self[1], *self.last.map(&:last)]
+	    end
+	end
 
 	# Parse the given input and return a single parse tree, or nil
 	# @param [String]	the input string to be parsed
@@ -63,7 +87,7 @@ module Parsers
 	end
 
 	# @param rules [Hash]
-	def self.convert_expression(expression_name, expression, rules, reference_counts)
+	def self.convert_expression(expression_name, expression, rules, reference_counts, recursions:)
 	    flattened_expression = [expression.first, *expression.last.map(&:last)]
 	    is_recursive = false
 
@@ -77,11 +101,13 @@ module Parsers
 		    else
 			# The terminal is a rule-reference, which needs to be mapped to the referenced rule
 			reference_name = _terminal.match[1].to_s
-			if rules[reference_name]
+			# NOTE The order of this conditional is important
+			if rules[reference_name] and not recursions.key?(reference_name)
+			# if rules[reference_name]
 			    # If the referenced rule has already been converted, just use it
 			    reference_counts[reference_name] += 1
 			    rules[reference_name]
-			elsif expression_name == reference_name
+			elsif expression_name == reference_name		# Direct recursive?
 			    if j.zero?
 				is_recursive = [i, :left]
 			    elsif j == (flattened_list.length - 1)
@@ -96,6 +122,13 @@ module Parsers
 				is_recursive = [i, :center]
 			    end
 			    _terminal
+			elsif recursions.key?(reference_name)
+			    # If the referenced rule is known to be indirectly-recursive, use the recursion proxy for it
+			    reference_counts[reference_name] += 1
+			    recursions[reference_name]
+			elsif not rules.key?(reference_name)
+			    # WARNING This is a hack for marking rule references that don't match any of the rules in the grammar
+			    reference_counts[expression_name] ||= nil
 			else
 			    # The referenced rule hasn't been converted, so bail out and try again later
 			    return
@@ -177,6 +210,22 @@ module Parsers
 	    end
 	end
 
+	# NOTE This modifies its arguments
+	def self.convert_rules(grammar, rules:, reference_counts:, recursions:)
+	    while not grammar.empty?
+		_rules = grammar.reject do |_rule|
+		    rule_name = _rule.rule_name
+		    rules[rule_name] ||= self.convert_expression(rule_name, _rule.rhs, rules, reference_counts, recursions:recursions)
+		end
+
+		break if _rules.length == grammar.length	# Bail out if none of the rules could be processed
+
+		grammar = _rules
+	    end
+
+	    grammar
+	end
+
 	# @return [Hash] the resulting set of Grammar elements, sorted by reference-count
 	def self.read(filename)
 	    bnf_syntax = parse(filename.respond_to?(:string) ? filename.string : File.read(filename))
@@ -184,33 +233,61 @@ module Parsers
 
 	    rules = {}
 	    reference_counts = Hash.new(0)
+	    recursive_rules = {}
 
-	    bnf_rules = [bnf_syntax[1], *bnf_syntax.last.map(&:last)]	# Flatten the parse tree
-	    loop do
-		_rules = bnf_rules.reject do |_rule|
-		    rule_name = _rule[1]
-		    expression = _rule.last
+	    bnf_rules = bnf_syntax.to_a	# Flatten the parse tree
 
-		    converted_expression = self.convert_expression(rule_name, expression, rules, reference_counts)
-		    if converted_expression
-			reference_counts[rule_name] = 0 unless reference_counts.key?(rule_name) 	# Ensure that every rule has an entry (for the sorting step below)
-			rules[rule_name] = converted_expression
-		    end
-		end
+	    # Find all of the grammar's rule names ahead of time to make it easier to detect unresolved rule references
+	    bnf_rules.each {|rule| rules[rule.rule_name] = nil}
 
-		break if _rules.length == bnf_rules.length	# Bail out if none of the rules could be processed
-
-		bnf_rules = _rules
-	    end
+	    bnf_rules = self.convert_rules(bnf_rules, rules:rules, reference_counts:reference_counts, recursions:recursive_rules)
 
 	    # At this point, all of the non-recursive and direct-recursive rules have been handled
 	    #  The only rules that weren't fully processed are the ones that either have dangling references, or are indirectly recursive
 
+	    # Rule references that aren't in the grammar have been marked with a nil-value in the reference_counts hash
+
+	    # The unprocessed rules that don't correspond to nil-valued reference counts are indirectly-recursive
+	    bnf_rules = bnf_rules.select {|rule| reference_counts[rule.first.to_s]}
+	    bnf_rules.reduce([]) do |paths, rule|
+		rule_name = rule.rule_name
+
+		# Start a new path for this rule
+		paths.push([rule_name])
+
+		# Find all of the rule references in the rule that aren't directly recursive
+		references = rule.rhs.to_a.flat_map do |list|
+		    [list.first, *list.last.map(&:last)].map do |terminal|
+			if BNF::Identifier === terminal.match
+			    reference_name = terminal.match[1].to_s
+			    reference_name if reference_name != rule_name
+			end
+		    end
+		end.compact.uniq
+
+		# Expand and append, then return the new paths as the new memo object
+		paths.flat_map do |path|
+		    next [path] unless path.last == rule_name
+		    references.map do |reference|
+			if reference == path.first
+			    recursive_rules[reference] ||= Grammar::Recursion.new()
+			end
+			[*path, reference]
+		    end
+		end
+	    end
+
+	    # Now convert the indirectly-recursive rules
+	    self.convert_rules(bnf_rules, rules:rules, reference_counts:reference_counts, recursions:recursive_rules)
+
+	    # Fixup the recursion proxies
+	    recursive_rules.each do |reference_name, recursion|
+		recursion.grammar = rules[reference_name]
+	    end
+
 	    # Sort the resulting Hash to move the root-most rules to the beginning
-	    #  Ideally, rules.values.first will be the root rule
-	    reference_counts.sort_by {|k,v| v}.map do |rule_name, _|
-		[rule_name, rules[rule_name]]
-	    end.to_h
+	    #  Ideally, rules.first will be the root rule
+	    rules.sort_by {|k,v| reference_counts[k]}.to_h
 	end
     end
 end
