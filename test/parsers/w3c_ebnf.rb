@@ -109,6 +109,16 @@ RSpec.describe Parsers::W3C_EBNF do
 		'rule7'=>rule7
 	    })
 	end
+
+	it 'must read a nested indirectly recursive grammar' do
+	    recursion = Grammar::Recursion.new
+	    rule3 = Grammar::Alternation.with('xyz', recursion)
+	    rule2 = Grammar::Alternation.with('def', rule3)
+	    rule1 = Grammar::Alternation.with('abc', rule2)
+	    recursion.grammar = rule1
+
+	    expect(read('rule1' => '"abc" | rule2', 'rule2' => '"def" | (rule3)', 'rule3' => '"xyz" | rule1')).to eq({'rule1'=>rule1, 'rule2'=>rule2, 'rule3'=>rule3})
+	end
     end
 
     context 'References' do

@@ -40,6 +40,16 @@ module Parsers
 	Rules = concatenation(Rule, concatenation(/([[:blank:]]*\n)*/, Rule).any)
 
 	class RHS
+	    # Return all of the rule references in this {RHS}
+	    # @return [Array<String>]
+	    def references(rule_name)
+		self.to_a.flat_map do |list|
+		    [list.first, *list.last.map(&:last)].flat_map do |expression|
+			expression.references(rule_name)
+		    end
+		end.compact.uniq
+	    end
+
 	    # @return [Array<List>]
 	    def to_a
 		[self.first, *self.last.map(&:last)]
@@ -47,6 +57,20 @@ module Parsers
 	end
 
 	class RHS::Expression
+	    # Return all of the rule references in this {Expression}
+	    # @return [Array<String>]
+	    def references(rule_name)
+		flattened_expression = self.to_a
+		case flattened_expression.first.match
+		    when W3C_EBNF::Identifier
+			reference_name = flattened_expression.first.to_s
+			reference_name if reference_name != rule_name
+		    when W3C_EBNF::RHS::Expression::Exclusion then [flattened_expression.first.match.first.references(rule_name), flattened_expression.first.match.last.references(rule_name)]
+		    when W3C_EBNF::RHS::Expression::Group then flattened_expression.first.match[1].references(rule_name)
+		    when W3C_EBNF::RHS::Expression::Repetition then flattened_expression.first.match[0].references(rule_name)
+		end
+	    end
+
 	    def to_a
 		# Because of weirdness in the way that I implemented recursion in Grammar, RHS::Expression will either be an Array or a simple match
 		#  FIXME I really should fix Grammar such that this is always an Alternation match, but it's not a simple fix
@@ -65,6 +89,12 @@ module Parsers
 	end
 
 	class Rule
+	    # Return all of the rule references in this {Rule}
+	    # @return [Array<String>]
+	    def references
+		self.rhs.references(self.rule_name)
+	    end
+
 	    # @return [RHS]
 	    def rhs
 		self.last
@@ -122,14 +152,7 @@ module Parsers
 		paths.push([rule_name])
 
 		# Find all of the rule references in the rule that aren't directly recursive
-		references = rule.rhs.to_a.flat_map do |list|
-		    [list.first, *list.last.map(&:last)].map do |expression|
-			if W3C_EBNF::Identifier === expression.to_a.first.match
-			    reference_name = expression.to_a.first.to_s
-			    reference_name if reference_name != rule_name
-			end
-		    end
-		end.compact.uniq
+		references = rule.references
 
 		# Expand and append, then return the new paths as the new memo object
 		paths.flat_map do |path|

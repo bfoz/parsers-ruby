@@ -55,13 +55,43 @@ module Parsers
 	end
 
 	class RHS
+	    # Return all of the rule references in this {RHS}
+	    # @return [Array<String>]
+	    def references(rule_name)
+		self.to_a.flat_map do |list|
+		    [list.first, *list.last.map(&:last)].flat_map do |expression|
+			expression.references(rule_name)
+		    end
+		end.compact.uniq
+	    end
+
 	    # @return [Array<List>]
 	    def to_a
 		[self.first, *self.last.map(&:last)]
 	    end
 	end
 
+	class RHS::Expression
+	    # Return all of the rule references in this {Expression}
+	    # @return [Array<String>]
+	    def references(rule_name)
+		case self.match
+		    when EBNF::Identifier
+			reference_name = self.to_s
+			reference_name if reference_name != rule_name
+		    when EBNF::RHS::Expression::Group, EBNF::RHS::Expression::Optional, EBNF::RHS::Expression::Repetition
+			self.match[1].references(rule_name)
+		end
+	    end
+	end
+
 	class Rule
+	    # Return all of the rule references in this {Rule}
+	    # @return [Array<String>]
+	    def references
+		self.rhs.references(self.rule_name)
+	    end
+
 	    # @return [RHS]
 	    def rhs
 		self[-2]
@@ -129,14 +159,7 @@ module Parsers
 		paths.push([rule_name])
 
 		# Find all of the rule references in the rule that aren't directly recursive
-		references = rule.rhs.to_a.flat_map do |list|
-		    [list.first, *list.last.map(&:last)].map do |expression|
-			if EBNF::Identifier === expression.match
-			    reference_name = expression.to_s
-			    reference_name if reference_name != rule_name
-			end
-		    end
-		end.compact.uniq
+		references = rule.references
 
 		# Expand and append, then return the new paths as the new memo object
 		paths.flat_map do |path|
@@ -229,16 +252,23 @@ module Parsers
 			    return
 			end
 		    elsif EBNF::RHS::Expression::Group === _expression.match
-			self.convert_rhs(rule_name, _expression.match[1], rules, reference_counts, recursions:recursions)
+			# If the Group can't be converted, bail out and try again later
+			self.convert_rhs(rule_name, _expression.match[1], rules, reference_counts, recursions:recursions) or return
 		    elsif EBNF::RHS::Expression::Optional === _expression.match
 			inner_rhs = self.convert_rhs(rule_name, _expression.match[1], rules, reference_counts, recursions:recursions)
 			if inner_rhs
 			    Grammar::Repetition.optional(inner_rhs)
+			else
+			    # If the Optional can't be converted, bail out and try again later
+			    return
 			end
 		    elsif EBNF::RHS::Expression::Repetition === _expression.match
 			inner_rhs = self.convert_rhs(rule_name, _expression.match[1], rules, reference_counts, recursions:recursions)
 			if inner_rhs
 			    Grammar::Repetition.any(inner_rhs)
+			else
+			    # If the Repetition can't be converted, bail out and try again later
+			    return
 			end
 		    end
 		end
