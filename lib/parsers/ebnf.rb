@@ -205,11 +205,13 @@ module Parsers
 	# @param rules [Hash]
 	# @return [Grammar::Alternation, Grammar::Concatenation]	the resulting Grammar element, or nil if the RHS couldn't be converted
 	def self.convert_rhs(rule_name, rhs, rules, reference_counts, recursions:)
-	    is_recursive = false
+	    recursives = []
 
 	    # Each element of the RHS is potentially a Concatenation
 	    # The RHS itself is potentially an Alternation
-	    mapped_rhs = rhs.to_a.map.with_index do |_list, i|
+	    mapped_rhs = rhs.to_a.map do |_list|
+		recursives.push(nil)	# Start off assuming that this rule isn't recursive
+
 		flattened_list = [_list.first, *_list.last.map(&:last)]
 		mapped_list = flattened_list.map.with_index do |_expression, j|
 		    if EBNF::Terminal === _expression.match
@@ -227,17 +229,17 @@ module Parsers
 			    rules[reference_name]
 			elsif rule_name == reference_name	# Direct recursive?
 			    if j.zero?
-				is_recursive = [i, :left]
+				recursives[-1] = :left
 			    elsif j == (flattened_list.length - 1)
-				if is_recursive and (is_recursive == [i, :left])
+				if :left == recursives.last
 				    # If this list is already marked as left-recursive, and it's now found to also be right recursive,
 				    #  then it must be both-recursive
-				    is_recursive = [i, :both]
+				    recursives[-1] = :both
 				else
-				    is_recursive = [i, :right]
+				    recursives[-1] = :right
 				end
 			    else
-				is_recursive = [i, :center]
+				recursives[-1] = :center
 			    end
 			    _expression
 			elsif recursions.key?(reference_name)
@@ -281,60 +283,69 @@ module Parsers
 		end
 	    end
 
-	    if is_recursive
-		recursion_index = is_recursive.first
-		recursive_list = mapped_rhs[recursion_index]
-
-		if is_recursive.last == :both
-		    # Left and Right recursive (with no elements between the recursive elements)
-		    # All other elements become one-or-more repetitions
-		    if recursive_list.length == 2
-			mapped_rhs = mapped_rhs.map do |list|
-			    next if list.equal?(recursive_list) 	# Skip the recursive element
-			    list.at_least(1)
-			end.compact
+	    if recursives.any?
+		leftmost_parts, rightmost_parts = recursives.zip(mapped_rhs.to_a).reduce([[],[]]) do |(_leftmost_parts, _rightmost_parts), (is_recursive, list)|
+		    if :left == is_recursive
+			# Take the rightmost parts of the recursive elements and append them to all of the other elements as a star-repeated Alternation
+			# Parsing Techniques - Chapter 5.6
+			remainder_list = list.to_a.drop(1)
+			remainder_list = (remainder_list.length > 1) ? Grammar::Concatenation.with(*remainder_list) : remainder_list.first
+			_rightmost_parts.push(remainder_list) if remainder_list
+		    elsif :right == is_recursive
+			# Take the leftmost parts of the recursive elements and prepend them to all of the other elements as a star-repeated Alternation
+			# Parsing Techniques - Chapter 5.4.2
+			remainder_list = list.to_a.tap(&:pop)
+			remainder_list = (remainder_list.length > 1) ? Grammar::Concatenation.with(*remainder_list) : remainder_list.first
+			_leftmost_parts.push(remainder_list) if remainder_list
 		    end
-		elsif is_recursive.last == :right
-		    # Take the leftmost parts of the recursive element and prepend them to all of the other elements as a star-repeat
-		    # Parsing Techniques - Chapter 5.4.2
-
-		    remainder_list = recursive_list.to_a.tap(&:pop)
-		    remainder_list = (remainder_list.length > 1) ? Grammar::Concatenation.with(*remainder_list) : remainder_list.first
-
-		    remainder = Grammar::Repetition.any(remainder_list)
-		    mapped_rhs = mapped_rhs.map do |list|
-			next if list.equal?(recursive_list) 	# Skip the recursive element
-
-			if remainder_list == list
-			    # This prettifies the situation where the repeated-grammar is the same as what it's being prepended to
-			    Grammar::Repetition.at_least(1, remainder_list)
-			elsif Grammar::Concatenation === list
-			    list.dup.tap {|_list| _list.instance_variable_get(:@elements).unshift(remainder) }
-			else
-			    Grammar::Concatenation.with(remainder, list)
-			end
-		    end.compact
-		elsif is_recursive.last == :left
-		    # Take the rightmost parts of the recursive element and append them to all of the other elements as a star-repeat
-		    # Parsing Techniques - Chapter 5.6
-
-		    remainder_list = recursive_list.to_a.drop(1)
-		    remainder_list = (remainder_list.length > 1) ? Grammar::Concatenation.with(*remainder_list) : remainder_list.first
-
-		    remainder = Grammar::Repetition.any(remainder_list)
-		    mapped_rhs = mapped_rhs.map do |list|
-			next if list.equal?(recursive_list) 	# Skip the recursive element
-
-			if remainder_list == list
-			    # This prettifies the situation where the repeated-grammar is the same as what it's being prepended to
-			    Grammar::Repetition.at_least(1, remainder_list)
-			elsif Grammar::Concatenation === list
-			    list.dup.tap {|_list| _list.instance_variable_get(:@elements).push(remainder) }
-			else
-			    Grammar::Concatenation.with(remainder, list)
-			end
-		    end.compact
+		    [_leftmost_parts, _rightmost_parts]
 		end
+
+		rightmost_parts = if rightmost_parts.length > 1
+		    Grammar::Alternation.with(*rightmost_parts)
+		else
+		    rightmost_parts.first
+		end
+		right_repetition = Grammar::Repetition.any(rightmost_parts) if rightmost_parts
+
+		leftmost_parts = if leftmost_parts.length > 1
+		    Grammar::Alternation.with(*leftmost_parts)
+		else
+		    leftmost_parts.first
+		end
+		left_repetition = Grammar::Repetition.any(leftmost_parts) if leftmost_parts
+
+		mapped_rhs = recursives.zip(mapped_rhs).map do |is_recursive, list|
+		    next if is_recursive and (is_recursive != :both) 	# Skip the recursive elements
+
+		    if (rightmost_parts == list) or (leftmost_parts == list)
+			# This prettifies the situation where the repeated-grammar is the same as what it's being prepended/appended to
+			Grammar::Repetition.at_least(1, list)
+		    elsif Grammar::Concatenation === list
+			# If the list element is already a Concatenation, insert the repetiton elements into it
+			# WARNING This is a dirty hack and I'm sure it will come back to bite me someday
+			list.dup.tap do |_list|
+			    _list.instance_variable_get(:@elements).unshift(left_repetition) if left_repetition
+			    _list.instance_variable_get(:@elements).push(right_repetition) if right_repetition
+			end
+		    else
+			# This looks funny to account for the fact that Repetition is splattable
+			Grammar::Concatenation.with(*[left_repetition, list, right_repetition].compact)
+		    end
+		end.compact
+	    end
+
+	    # This is a weird hack for handling the weird case of a rule that is both left and right recursive (with no elements between the recursive elements)
+	    #  In this situation, make all of the other elements into one-or-more repetitions
+	    # I don't remember where I got this idea, or why it came up (I'm pretty sure it in developing a grammar for something),
+	    #  but it works for the situation it was intended for.
+	    recursion_index = recursives.find_index(:both)
+	    if recursion_index
+		recursive_list = mapped_rhs[recursion_index]
+		mapped_rhs = mapped_rhs.map do |list|
+		    next if list.equal?(recursive_list) 	# Skip the recursive element
+		    list.at_least(1)
+		end.compact
 	    end
 
 	    if mapped_rhs.length > 1

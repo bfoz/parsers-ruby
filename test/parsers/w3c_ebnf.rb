@@ -47,6 +47,10 @@ RSpec.describe Parsers::W3C_EBNF do
 	    expect(Parsers::W3C_EBNF.read(stringify('rule ::= "abc" "def" | rule "abc" "def"'))).to eq({"rule" => Grammar::Concatenation.with('abc', 'def').at_least(1)})
 	end
 
+	it 'must read a multiply direct left recursive alternation' do
+	    expect(read(rule: '"abc" | rule "def" | rule "xyz"')).to eq({'rule' => Grammar::Concatenation.with('abc', Grammar::Alternation.with('def', 'xyz').any)})
+	end
+
 	it 'must read a direct right recursive grammar from a file' do
 	    expect(Parsers::W3C_EBNF.read(stringify('rule ::= "abc" "def" | "xyz" rule'))).to eq({"rule" => Grammar::Concatenation.with(Grammar::Repetition.any('xyz'), 'abc', 'def')})
 
