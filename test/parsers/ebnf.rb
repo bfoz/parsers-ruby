@@ -59,8 +59,8 @@ RSpec.describe Parsers::EBNF do
 	it 'must read a simple indirectly recursive grammar' do
 	    recursion = Grammar::Recursion.new
 	    rule3 = Grammar::Alternation.with('xyz', recursion)
-	    rule2 = Grammar::Alternation.with('def', rule3)
-	    rule1 = Grammar::Alternation.with('abc', rule2)
+	    rule2 = Grammar::Alternation.with('def', Parsers::RuleReference.new('rule3', rule3))
+	    rule1 = Grammar::Alternation.with('abc', Parsers::RuleReference.new('rule2', rule2))
 	    recursion.grammar = rule1
 
 	    expect(Parsers::EBNF.read(stringify('rule1 = "abc" | rule2', 'rule2 = "def" | rule3', 'rule3 = "xyz" | rule1'))).to eq({'rule1'=>rule1, 'rule2'=>rule2, 'rule3'=>rule3})
@@ -69,8 +69,8 @@ RSpec.describe Parsers::EBNF do
 	it 'must read an indirectly recursive grammar' do
 	    recursion = Grammar::Recursion.new
 	    rule3 = Grammar::Alternation.with('xyz', recursion)
-	    rule2 = Grammar::Alternation.with('def', rule3)
-	    rule1 = Grammar::Alternation.with('abc', rule2)
+	    rule2 = Grammar::Alternation.with('def', Parsers::RuleReference.new('rule3', rule3))
+	    rule1 = Grammar::Alternation.with('abc', Parsers::RuleReference.new('rule2', rule2))
 	    recursion.grammar = rule1
 	    rule4 = Grammar::Concatenation.with('abc', recursion)
 
@@ -80,14 +80,14 @@ RSpec.describe Parsers::EBNF do
 	it 'must read a multiply indirectly recursive grammar' do
 	    recursion0 = Grammar::Recursion.new
 	    rule3 = Grammar::Alternation.with('xyz', recursion0)
-	    rule2 = Grammar::Alternation.with('def', rule3)
-	    rule1 = Grammar::Alternation.with('abc', rule2)
+	    rule2 = Grammar::Alternation.with('def', Parsers::RuleReference.new('rule3', rule3))
+	    rule1 = Grammar::Alternation.with('abc', Parsers::RuleReference.new('rule2', rule2))
 	    recursion0.grammar = rule1
 
 	    recursion1 = Grammar::Recursion.new
 	    rule7 = Grammar::Alternation.with('zyx', recursion1)
-	    rule6 = Grammar::Alternation.with('fed', rule7)
-	    rule5 = Grammar::Alternation.with('cba', rule6)
+	    rule6 = Grammar::Alternation.with('fed', Parsers::RuleReference.new('rule7', rule7))
+	    rule5 = Grammar::Alternation.with('cba', Parsers::RuleReference.new('rule6', rule6))
 	    recursion1.grammar = rule5
 
 	    rule4 = Grammar::Concatenation.with('abc', recursion0, recursion1)
@@ -114,8 +114,8 @@ RSpec.describe Parsers::EBNF do
 	it 'must read a nested indirectly recursive grammar' do
 	    recursion = Grammar::Recursion.new
 	    rule3 = Grammar::Alternation.with('xyz', recursion)
-	    rule2 = Grammar::Alternation.with('def', rule3)
-	    rule1 = Grammar::Alternation.with('abc', rule2)
+	    rule2 = Grammar::Alternation.with('def', Parsers::RuleReference.new('rule3', rule3))
+	    rule1 = Grammar::Alternation.with('abc', Parsers::RuleReference.new('rule2', rule2))
 	    recursion.grammar = rule1
 
 	    expect(read('rule1' => '"abc" | rule2', 'rule2' => '"def" | (rule3)', 'rule3' => '"xyz" | rule1')).to eq({'rule1'=>rule1, 'rule2'=>rule2, 'rule3'=>rule3})
@@ -125,16 +125,33 @@ RSpec.describe Parsers::EBNF do
     context 'References' do
 	it 'must resolve backwards rule references' do
 	    rule0 = Grammar::Concatenation.with('abc', 'def')
-	    expect(Parsers::EBNF.read(stringify('rule0="abc", "def"', 'rule1="xyz", rule0'))).to eq({'rule0' => rule0, 'rule1' => Grammar::Concatenation.with('xyz', rule0)})
+	    expect(read(rule0:'"abc", "def"', rule1:'"xyz", rule0')).to eq({'rule0' => rule0, 'rule1' => Grammar::Concatenation.with('xyz', Parsers::RuleReference.new('rule0', rule0))})
 	end
 
 	it 'must resolve forward rule references' do
 	    rule1 = Grammar::Concatenation.with('def', 'xyz')
-	    expect(Parsers::EBNF.read(stringify('rule0="abc", rule1', 'rule1="def", "xyz"'))).to eq({'rule0' => Grammar::Concatenation.with('abc', rule1), 'rule1' => rule1})
+	    expect(read(rule0:'"abc", rule1', rule1:'"def", "xyz"')).to eq({'rule0' => Grammar::Concatenation.with('abc', Parsers::RuleReference.new('rule1', rule1)), 'rule1' => rule1})
 	end
 
 	it 'must list the root-most rule first' do
 	    expect(Parsers::EBNF.read(stringify('rule0="abc", "def"', 'rule1="xyz", rule0')).first.first).to eq('rule1')
+	end
+
+	it 'must not be confused by references to identical rules' do
+	    rule3 = 'xyz'
+	    rule4 = 'xyz'
+
+	    expect(read(
+		rule1:'"abc" rule3',
+		rule2:'"def" rule4',
+		rule3:'"xyz"',
+		rule4:'"xyz"'
+	    )).to eq({
+		'rule1' => Grammar::Concatenation.with('abc', Parsers::RuleReference.new('rule3', rule3)),
+		'rule2' => Grammar::Concatenation.with('def', Parsers::RuleReference.new('rule4', rule4)),
+		'rule3' => rule3,
+		'rule4' => rule4
+	    })
 	end
     end
 

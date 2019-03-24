@@ -226,7 +226,7 @@ module Parsers
 			if rules[reference_name] and not recursions.key?(reference_name)
 			    # If the referenced rule has already been converted, just use it
 			    reference_counts[reference_name] += 1
-			    rules[reference_name]
+			    RuleReference.new(reference_name, rules[reference_name])
 			elsif rule_name == reference_name	# Direct recursive?
 			    if j.zero?
 				recursives[-1] = :left

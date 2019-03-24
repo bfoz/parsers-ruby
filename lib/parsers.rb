@@ -4,6 +4,8 @@ require_relative 'parsers/w3c_ebnf'
 require_relative 'parsers/recursive_descent'
 
 module Parsers
+    RuleReference = Struct.new(:rule_name, :rule)
+
     def self.dump(rules, filename)
 	# Detect the output type from the filename
 	if filename.end_with?('.ebnf')
@@ -51,7 +53,7 @@ module Parsers
 
     def self.rule_to_ebnf(rules, element)
 	# If the Grammar element is in rules, use the key as the name, otherwise stringify the Pattern
-	if rules.has_value?(element)
+	if not (Parsers::RuleReference === element) and rules.has_value?(element)
 	    rules.key(element)
 	else
 	    case element
@@ -60,6 +62,7 @@ module Parsers
 		when Grammar::Concatenation     then element.map {|_element| self.rule_to_ebnf(rules, _element)}.join(' ')
 		when Grammar::Recursion 	then self.rule_to_ebnf(rules, element.grammar)
 		when Grammar::Repetition        then self.repetition_to_ebnf(element, rules)
+		when Parsers::RuleReference	then element.rule_name or self.rule_to_ebnf(rules, element.rule)
 	    end
 	end
     end
@@ -73,6 +76,7 @@ module Parsers
 		when Grammar::Concatenation     then rule.map {|element| self.rule_to_ebnf(rules, element) }.join(" ")
 		when Grammar::Recursion 	then self.rule_to_ebnf(rules, rule.grammar)
 		when Grammar::Repetition        then self.repetition_to_ebnf(rule, rules)
+		when Parsers::RuleReference 	then rule.rule_name or self.rule_to_ebnf(rules, rule.rule)
 	    end
 	end.map do |rule_name, rule|
 	    "#{rule_name} = #{rule}"
