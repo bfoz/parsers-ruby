@@ -51,33 +51,30 @@ module Parsers
 	end
     end
 
-    def self.rule_to_ebnf(rules, element)
+    def self.element_to_ebnf(rules, element)
 	# If the Grammar element is in rules, use the key as the name, otherwise stringify the Pattern
 	if not (Parsers::RuleReference === element) and rules.has_value?(element)
 	    rules.key(element)
 	else
-	    case element
-		when String                     then self.string_to_ebnf(element)       # Handle String here because Alternations don't like to be compared with them
-		when Grammar::Alternation       then element.map {|_element| self.rule_to_ebnf(rules, _element)}.join(' | ')
-		when Grammar::Concatenation     then element.map {|_element| self.rule_to_ebnf(rules, _element)}.join(' ')
-		when Grammar::Recursion 	then self.rule_to_ebnf(rules, element.grammar)
-		when Grammar::Repetition        then self.repetition_to_ebnf(element, rules)
-		when Parsers::RuleReference	then element.rule_name or self.rule_to_ebnf(rules, element.rule)
-	    end
+	    self.rule_to_ebnf(rules, element)
+	end
+    end
+
+    def self.rule_to_ebnf(rules, rule)
+	case rule
+	    when String				then self.string_to_ebnf(rule)          # Handle String here because Alternations don't like to be compared with them
+	    when Grammar::Alternation		then rule.map {|element| self.element_to_ebnf(rules, element) }.join(" | ")
+	    when Grammar::Concatenation		then rule.map {|element| self.element_to_ebnf(rules, element) }.join(" ")
+	    when Grammar::Recursion		then self.element_to_ebnf(rules, rule.grammar)
+	    when Grammar::Repetition		then self.repetition_to_ebnf(rule, rules)
+	    when Parsers::RuleReference 	then rule.rule_name or self.element_to_ebnf(rules, rule.rule)
 	end
     end
 
     # @return [String]    A new String containing the serialized form of the given rule set
     def self.rules_to_ebnf(rules)
 	rules.transform_values do |rule|
-	    case rule
-		when String                     then self.string_to_ebnf(rule)          # Handle String here because Alternations don't like to be compared with them
-		when Grammar::Alternation       then rule.map {|element| self.rule_to_ebnf(rules, element) }.join(" | ")
-		when Grammar::Concatenation     then rule.map {|element| self.rule_to_ebnf(rules, element) }.join(" ")
-		when Grammar::Recursion 	then self.rule_to_ebnf(rules, rule.grammar)
-		when Grammar::Repetition        then self.repetition_to_ebnf(rule, rules)
-		when Parsers::RuleReference 	then rule.rule_name or self.rule_to_ebnf(rules, rule.rule)
-	    end
+	    self.rule_to_ebnf(rules, rule)
 	end.map do |rule_name, rule|
 	    "#{rule_name} = #{rule}"
 	end.join(" ;\n") + " ;"
