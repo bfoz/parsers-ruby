@@ -9,7 +9,11 @@ module Parsers
 
     def self.dump(rules, filename)
 	# Detect the output type from the filename
-	if filename.end_with?('.ebnf')
+	if filename.end_with?('.bnf')
+	    File.open(filename, 'w') do |file|
+		file.write(rules_to_bnf(rules))
+	    end
+	elsif filename.end_with?('.ebnf')
 	    File.open(filename, 'w') do |file|
 		file.write(rules_to_ebnf(rules))
 	    end
@@ -74,11 +78,16 @@ module Parsers
     end
 
     # @return [String]    A new String containing the serialized form of the given rule set
-    def self.rules_to_ebnf(rules)
+    def self.rules_to_bnf(rules, separator:' ::= ', eol:'')
 	rules.transform_values do |rule|
 	    self.rule_to_ebnf(rules, rule)
 	end.map do |rule_name, rule|
-	    "#{rule_name} = #{rule}"
-	end.join(" ;\n") + " ;"
+	    "#{rule_name}#{separator}#{rule}"
+	end.join(eol + "\n") + eol
+    end
+
+    # @return [String]    A new String containing the serialized form of the given rule set
+    def self.rules_to_ebnf(rules)
+	self.rules_to_bnf(rules, separator:' = ', eol:' ;')
     end
 end
