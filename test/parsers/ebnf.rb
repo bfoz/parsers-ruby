@@ -58,7 +58,7 @@ RSpec.describe Parsers::EBNF do
 
 	it 'must read a simple indirectly recursive grammar' do
 	    recursion = Grammar::Recursion.new
-	    rule3 = Grammar::Alternation.with('xyz', recursion)
+	    rule3 = Grammar::Alternation.with('xyz', Parsers::RecursiveReference.new('rule1', recursion))
 	    rule2 = Grammar::Alternation.with('def', Parsers::RuleReference.new('rule3', rule3))
 	    rule1 = Grammar::Alternation.with('abc', Parsers::RuleReference.new('rule2', rule2))
 	    recursion.grammar = rule1
@@ -68,27 +68,27 @@ RSpec.describe Parsers::EBNF do
 
 	it 'must read an indirectly recursive grammar' do
 	    recursion = Grammar::Recursion.new
-	    rule3 = Grammar::Alternation.with('xyz', recursion)
+	    rule3 = Grammar::Alternation.with('xyz', Parsers::RecursiveReference.new('rule1', recursion))
 	    rule2 = Grammar::Alternation.with('def', Parsers::RuleReference.new('rule3', rule3))
 	    rule1 = Grammar::Alternation.with('abc', Parsers::RuleReference.new('rule2', rule2))
 	    recursion.grammar = rule1
-	    rule4 = Grammar::Concatenation.with('abc', recursion)
+	    rule4 = Grammar::Concatenation.with('abc', Parsers::RecursiveReference.new('rule1', recursion))
 
 	    expect(Parsers::EBNF.read(stringify('rule1 = "abc" | rule2', 'rule2 = "def" | rule3', 'rule3 = "xyz" | rule1', 'rule4 = "abc", rule1'))).to eq({'rule4'=>rule4, 'rule1'=>rule1, 'rule2'=>rule2, 'rule3'=>rule3})
 	end
 
 	it 'must read a multiply indirectly recursive grammar' do
-	    recursion0 = Grammar::Recursion.new
+	    recursion0 = Parsers::RecursiveReference.new('rule1', Grammar::Recursion.new)
 	    rule3 = Grammar::Alternation.with('xyz', recursion0)
 	    rule2 = Grammar::Alternation.with('def', Parsers::RuleReference.new('rule3', rule3))
 	    rule1 = Grammar::Alternation.with('abc', Parsers::RuleReference.new('rule2', rule2))
-	    recursion0.grammar = rule1
+	    recursion0.rule.grammar = rule1
 
-	    recursion1 = Grammar::Recursion.new
+	    recursion1 = Parsers::RecursiveReference.new('rule5', Grammar::Recursion.new)
 	    rule7 = Grammar::Alternation.with('zyx', recursion1)
 	    rule6 = Grammar::Alternation.with('fed', Parsers::RuleReference.new('rule7', rule7))
 	    rule5 = Grammar::Alternation.with('cba', Parsers::RuleReference.new('rule6', rule6))
-	    recursion1.grammar = rule5
+	    recursion1.rule.grammar = rule5
 
 	    rule4 = Grammar::Concatenation.with('abc', recursion0, recursion1)
 
@@ -112,11 +112,11 @@ RSpec.describe Parsers::EBNF do
 	end
 
 	it 'must read a nested indirectly recursive grammar' do
-	    recursion = Grammar::Recursion.new
+	    recursion = Parsers::RecursiveReference.new('rule1', Grammar::Recursion.new)
 	    rule3 = Grammar::Alternation.with('xyz', recursion)
 	    rule2 = Grammar::Alternation.with('def', Parsers::RuleReference.new('rule3', rule3))
 	    rule1 = Grammar::Alternation.with('abc', Parsers::RuleReference.new('rule2', rule2))
-	    recursion.grammar = rule1
+	    recursion.rule.grammar = rule1
 
 	    expect(read('rule1' => '"abc" | rule2', 'rule2' => '"def" | (rule3)', 'rule3' => '"xyz" | rule1')).to eq({'rule1'=>rule1, 'rule2'=>rule2, 'rule3'=>rule3})
 	end

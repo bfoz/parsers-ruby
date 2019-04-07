@@ -245,7 +245,7 @@ module Parsers
 			elsif recursions.key?(reference_name)
 			    # If the referenced rule is known to be indirectly-recursive, use the recursion proxy for it
 			    reference_counts[reference_name] += 1
-			    recursions[reference_name]
+			    RecursiveReference.new(reference_name, recursions[reference_name])
 			elsif not rules.key?(reference_name)
 			    # WARNING This is a hack for marking rule references that don't match any of the rules in the grammar
 			    reference_counts[rule_name] ||= nil

@@ -4,6 +4,7 @@ require_relative 'parsers/w3c_ebnf'
 require_relative 'parsers/recursive_descent'
 
 module Parsers
+    RecursiveReference = Struct.new(:rule_name, :rule)
     RuleReference = Struct.new(:rule_name, :rule)
 
     def self.dump(rules, filename)
@@ -67,6 +68,7 @@ module Parsers
 	    when Grammar::Concatenation		then rule.map {|element| self.element_to_ebnf(rules, element) }.join(" ")
 	    when Grammar::Recursion		then self.element_to_ebnf(rules, rule.grammar)
 	    when Grammar::Repetition		then self.repetition_to_ebnf(rule, rules)
+	    when Parsers::RecursiveReference 	then rule.rule_name or self.element_to_ebnf(rules, rule.rule)
 	    when Parsers::RuleReference 	then rule.rule_name or self.element_to_ebnf(rules, rule.rule)
 	end
     end
