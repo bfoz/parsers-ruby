@@ -17,6 +17,10 @@ module Parsers
 	    File.open(filename, 'w') do |file|
 		file.write(rules_to_ebnf(rules))
 	    end
+	elsif filename.end_with?('.rb')
+	    File.open(filename, 'w') do |file|
+		file.write(Parsers::NamedRules.new(rules).to_ruby)
+	    end
 	else
 	    # Default to returning a String in EBNF format
 	    rules_to_ebnf(rules)
