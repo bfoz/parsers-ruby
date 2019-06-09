@@ -120,23 +120,24 @@ module Parsers
 	    end
 	    cycles.each do |node, _cycles|
 		_cycles.each do |_cycle|
-		    rule = _cycle.last
-		    referers = find_referers(rule, _references)
-		    if referers.empty?
-			raise StandardError.new("In the cycle for #{node}, #{rule} has no referers!!")
-		    elsif referers.length == 1
-			# Internalize the rule if it isn't used anywhere else
-			reparent.call(rule, node)
-		    else
-			# If all of the referers are either internal rules of the root node, or are external references of the root node,
-			#  then re-parent the rule in the root node
-			node_references = external_references_for_node(node, internal_rules, _references)
-			if referers.all? {|referer| internal_rules[node].include?(referer) or node_references.include?(referer)}
+		    _cycle.each do |rule|
+			referers = find_referers(rule, _references)
+			if referers.empty?
+			    raise StandardError.new("In the cycle for #{node}, #{rule} has no referers!!")
+			elsif referers.length == 1
+			    # Internalize the rule if it isn't used anywhere else
 			    reparent.call(rule, node)
 			else
-			    # If the first node of a recursive cycle can't be internalized then the overall grammar has serious issues
-			    puts("Can't internalize '#{rule}' into '#{node}' because it has referers: #{referers}")
-			    # raise StandardError.new("Can't internalize '#{rule}' into '#{node}' because it has referers: #{referers}")
+			    # If all of the referers are either internal rules of the root node, or are external references of the root node,
+			    #  then re-parent the rule in the root node
+			    node_references = external_references_for_node(node, internal_rules, _references)
+			    if referers.all? {|referer| internal_rules[node].include?(referer) or node_references.include?(referer)}
+				reparent.call(rule, node)
+			    else
+				# If the first node of a recursive cycle can't be internalized then the overall grammar has serious issues
+				puts("Can't internalize '#{rule}' into '#{node}' because it has referers: #{referers}")
+				# raise StandardError.new("Can't internalize '#{rule}' into '#{node}' because it has referers: #{referers}")
+			    end
 			end
 		    end
 		end

@@ -45,5 +45,14 @@ RSpec.describe Parsers::NamedRules do
 	    )
 	    expect(rules.to_ruby).to eq("rule1\t= alternation do |rule1|\n\trule2 = concatenation(\"xyz\", rule1)\n\n\telement \"abc\"\n\telement rule2\nend")
 	end
+
+	it 'must properly nest multiply indirectly recursive rules' do
+	    rules = Parsers::NamedRules.new(
+		'rule1' => Grammar::Alternation.with('abc', Parsers::RuleReference.new('rule2', nil)),
+		'rule2' => Grammar::Concatenation.with('xyz', Parsers::RuleReference.new('rule3', nil)),
+		'rule3' => Grammar::Concatenation.with('def', Parsers::RuleReference.new('rule1', nil))
+	    )
+	    expect(rules.to_ruby).to eq("rule1\t= alternation do |rule1|\n\trule2 = concatenation(\"xyz\", rule3)\n\trule3 = concatenation(\"def\", rule1)\n\n\telement \"abc\"\n\telement rule2\nend")
+	end
     end
 end
