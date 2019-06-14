@@ -151,9 +151,6 @@ module Parsers
 		end
 	    end
 
-	    # Uniqify the internal rule sets
-	    internal_rules.transform_values(&:uniq!)
-
 	    [cycles, internal_rules, orphaned_rules.uniq, _references]
 	end
 
@@ -284,6 +281,11 @@ module Parsers
 	# @return [String] 	The resulting Ruby source
 	def to_ruby()
 	    cycles, internal_rules, non_root_rules, _references = break_cycles()
+
+	    # Sort the internal rules
+	    internal_rules.transform_values! do |locals|
+	    	sorted_names(_references.slice(*locals.uniq))
+	    end
 
 	    (self.sorted_names(_references)-non_root_rules).map do |rule_name|
 		_ruby = rule_to_ruby(rule_name, @rules[rule_name], cycles:cycles, rule_locals:internal_rules)
