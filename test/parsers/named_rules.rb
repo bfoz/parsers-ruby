@@ -54,5 +54,27 @@ RSpec.describe Parsers::NamedRules do
 	    )
 	    expect(rules.to_ruby).to eq("rule1\t= alternation do |rule1|\n\trule2 = concatenation(\"xyz\", rule3)\n\trule3 = concatenation(\"def\", rule1)\n\n\telement \"abc\"\n\telement rule2\nend\n")
 	end
+
+	it 'must nest indirectly recursive rules with a common sub-rule' do
+	    rules = Parsers::NamedRules.new(
+		'rule1' => Grammar::Alternation.with('abc', Parsers::RuleReference.new('rule2', nil), Parsers::RuleReference.new('rule3', nil)),
+		'rule2' => Grammar::Concatenation.with('xyz', Parsers::RuleReference.new('rule4', nil)),
+		'rule3' => Grammar::Concatenation.with('abc', Parsers::RuleReference.new('rule4', nil)),
+		'rule4' => Grammar::Concatenation.with('def', Parsers::RuleReference.new('rule1', nil))
+	    )
+
+	    expect(rules.to_ruby).to eq(<<~EOS
+		rule1	= alternation do |rule1|
+			rule2 = concatenation("xyz", rule4)
+			rule4 = concatenation("def", rule1)
+			rule3 = concatenation("abc", rule4)
+
+			element "abc"
+			element rule2
+			element rule3
+		end
+	    EOS
+	    )
+	end
     end
 end

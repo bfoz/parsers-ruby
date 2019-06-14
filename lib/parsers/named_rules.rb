@@ -92,20 +92,28 @@ module Parsers
 		    cycle = path.drop_while {|a| not (a == node) }.drop(1)
 		    unless cycle.empty?
 			cycles[node].push(cycle)
-
-			# Remove the dependency on the recursive node from the last internal node of the cycle
-			_references[cycle.last].delete(node)
 		    end
 		else
 		    path.push node
 		    _references[node].dup.each(&visit)
 		    path.delete(node)
-		    marks.push node
 		end
 	    end
 
 	    # Find and break the cycles
-	    _references.keys.each(&visit)
+	    _references.keys.each do |node|
+		visit.call(node)
+
+		# Only mark the rules at the top level, and only after they've been visited,
+		#  so that all cycles will be found
+		marks.push node
+	    end
+	    cycles.each do |node, _cycles|
+		_cycles.each do |cycle|
+		    # Remove the dependency on the recursive node from the last internal node of the cycle
+		    _references[cycle.last].delete(node)
+		end
+	    end
 
 	    # Create the internal rule set for the recursive node of each cycle to avoid
 	    #  losing references to the reparented rules
@@ -143,7 +151,10 @@ module Parsers
 		end
 	    end
 
-	    [cycles, internal_rules, orphaned_rules, _references]
+	    # Uniqify the internal rule sets
+	    internal_rules.transform_values(&:uniq!)
+
+	    [cycles, internal_rules, orphaned_rules.uniq, _references]
 	end
 
 	# Find all of the external references for the given rule as well as for all of its internal rules
