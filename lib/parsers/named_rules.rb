@@ -280,7 +280,7 @@ module Parsers
 		    _ruby = _ruby.join("\n")
 		end
 		"#{rule_name}\t= #{_ruby}" if _ruby
-	    end.join("\n")
+	    end.join("\n") + "\n"
 	end
 
 	# @endgroup
