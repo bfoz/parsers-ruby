@@ -86,5 +86,31 @@ RSpec.describe Parsers::NamedRules do
 	    EOS
 	    )
 	end
+
+	it 'must nest multiply indirectly recursive rules with a common internal cycle' do
+	    rules = Parsers::NamedRules.new(
+		'rule0' => Grammar::Concatenation.with('abc', Parsers::RuleReference.new('rule1', nil)),
+		'rule1' => Grammar::Alternation.with('abc', Parsers::RuleReference.new('rule2', nil), Parsers::RuleReference.new('rule3', nil)),
+		'rule2' => Grammar::Concatenation.with('def', Parsers::RuleReference.new('rule4', nil)),
+		'rule3' => Grammar::Concatenation.with('ghi', Parsers::RuleReference.new('rule4', nil)),
+		'rule4' => Grammar::Concatenation.with('uvw', Parsers::RuleReference.new('rule5', nil)),
+		'rule5' => Grammar::Concatenation.with('xyz', Parsers::RuleReference.new('rule1', nil))
+	    )
+
+	    expect(rules.to_ruby).to eq(<<~EOS
+		rule1	= alternation do |rule1|
+			rule5 = concatenation("xyz", rule1)
+			rule4 = concatenation("uvw", rule5)
+			rule2 = concatenation("def", rule4)
+			rule3 = concatenation("ghi", rule4)
+
+			element "abc"
+			element rule2
+			element rule3
+		end
+		rule0	= concatenation("abc", rule1)
+	    EOS
+	    )
+	end
     end
 end

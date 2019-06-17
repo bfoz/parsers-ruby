@@ -89,7 +89,7 @@ module Parsers
 	    	# Skip the node if it's already marked, unless this happens to be a node that's already known to be the end of a cycle
 	    	#  Because in that case this is probably an alternate route through a cycle
 	    	#  ie. rule1 -> rule2 -> rule4 -> rule1 and rule1 -> rule3 -> rule4 -> rule1
-		return if marks.include?(node) and (cycles.none? {|_,_cycles| _cycles.any? {|cycle| cycle.last == node } })
+		return if marks.include?(node) and (cycles.none? {|_,_cycles| _cycles.any? {|cycle| cycle.include?(node) } })
 		if path.include?(node)
 		    # Record the cycle
 		    cycle = path.drop_while {|a| not (a == node) }.drop(1)
