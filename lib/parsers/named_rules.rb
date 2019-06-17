@@ -86,7 +86,10 @@ module Parsers
 
 	    cycles = Hash.new {|h,k| h[k] = [] }
 	    visit = ->(node) do
-		return if marks.include?(node)
+	    	# Skip the node if it's already marked, unless this happens to be a node that's already known to be the end of a cycle
+	    	#  Because in that case this is probably an alternate route through a cycle
+	    	#  ie. rule1 -> rule2 -> rule4 -> rule1 and rule1 -> rule3 -> rule4 -> rule1
+		return if marks.include?(node) and (cycles.none? {|_,_cycles| _cycles.any? {|cycle| cycle.last == node } })
 		if path.include?(node)
 		    # Record the cycle
 		    cycle = path.drop_while {|a| not (a == node) }.drop(1)
@@ -97,16 +100,13 @@ module Parsers
 		    path.push node
 		    _references[node].dup.each(&visit)
 		    path.delete(node)
+		    marks.push node
 		end
 	    end
 
 	    # Find and break the cycles
 	    _references.keys.each do |node|
 		visit.call(node)
-
-		# Only mark the rules at the top level, and only after they've been visited,
-		#  so that all cycles will be found
-		marks.push node
 	    end
 	    cycles.each do |node, _cycles|
 		_cycles.each do |cycle|
@@ -156,9 +156,12 @@ module Parsers
 
 	# Find all of the external references for the given rule as well as for all of its internal rules
 	# @return [Array]
-	private def external_references_for_node(rule, internal_rules, _references=nil)
+	private def external_references_for_node(rule, internal_rules, _references=nil, path:[])
 	    _references ||= self.references
-	    __refs = internal_rules[rule].flat_map {|a| external_references_for_node(a, internal_rules, _references) }.uniq
+	    __refs = internal_rules[rule].flat_map do |a|
+		next if path.include?(a)
+		external_references_for_node(a, internal_rules, _references, path:path+[a])
+	    end.compact.uniq
 	    # Combine the arrays in the given order to preserve the dependency ordering
 	    __refs + _references[rule] - internal_rules[rule]
 	end
