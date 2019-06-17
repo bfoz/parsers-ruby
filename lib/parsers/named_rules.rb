@@ -93,7 +93,7 @@ module Parsers
 		if path.include?(node)
 		    # Record the cycle
 		    cycle = path.drop_while {|a| not (a == node) }.drop(1)
-		    unless cycle.empty?
+		    unless (cycle.empty? or cycles.fetch(node, []).include?(cycle))
 			cycles[node].push(cycle)
 		    end
 		else
