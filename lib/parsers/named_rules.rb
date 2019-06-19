@@ -115,43 +115,7 @@ module Parsers
 		end
 	    end
 
-	    # Create the internal rule set for the recursive node of each cycle to avoid
-	    #  losing references to the reparented rules
-	    #  This must be done as a separate step, after finding the cycles, so that
-	    #  all of the cycles have been broken first (to avoid reintroducing a cycle)
-	    internal_rules = Hash.new {|h,k| h[k] = [] }
-	    orphaned_rules = []
-	    reparent = ->(rule, parent) do
-		# Re-parent the rule
-		internal_rules[parent].push rule
-		orphaned_rules.push rule
-	    end
-	    cycles.each do |node, _cycles|
-		_cycles.each do |_cycle|
-		    _cycle.each do |rule|
-			referers = find_referers(rule, _references)
-			if referers.empty?
-			    raise StandardError.new("In the cycle for #{node}, #{rule} has no referers!!")
-			elsif referers.length == 1
-			    # Internalize the rule if it isn't used anywhere else
-			    reparent.call(rule, node)
-			else
-			    # If all of the referers are either internal rules of the root node, or are external references of the root node,
-			    #  then re-parent the rule in the root node
-			    node_references = external_references_for_node(node, internal_rules, _references)
-			    if referers.all? {|referer| internal_rules[node].include?(referer) or node_references.include?(referer)}
-				reparent.call(rule, node)
-			    else
-				# If the first node of a recursive cycle can't be internalized then the overall grammar has serious issues
-				puts("Can't internalize '#{rule}' into '#{node}' because it has referers: #{referers}")
-				# raise StandardError.new("Can't internalize '#{rule}' into '#{node}' because it has referers: #{referers}")
-			    end
-			end
-		    end
-		end
-	    end
-
-	    [cycles, internal_rules, orphaned_rules.uniq, _references]
+	    [cycles, _references]
 	end
 
 	# Find all of the external references for the given rule as well as for all of its internal rules
@@ -283,7 +247,44 @@ module Parsers
 
 	# @return [String] 	The resulting Ruby source
 	def to_ruby()
-	    cycles, internal_rules, non_root_rules, _references = break_cycles()
+	    cycles, _references = break_cycles()
+
+	    # Create the internal rule set for the recursive node of each cycle to avoid
+	    #  losing references to the reparented rules
+	    #  This must be done as a separate step, after finding the cycles, so that
+	    #  all of the cycles have been broken first (to avoid reintroducing a cycle)
+	    internal_rules = Hash.new {|h,k| h[k] = [] }
+	    orphaned_rules = []
+	    reparent = ->(rule, parent) do
+		# Re-parent the rule
+		internal_rules[parent].push rule
+		orphaned_rules.push rule
+	    end
+	    cycles.each do |node, _cycles|
+		_cycles.each do |_cycle|
+		    _cycle.each do |rule|
+			referers = find_referers(rule, _references)
+			if referers.empty?
+			    raise StandardError.new("In the cycle for #{node}, #{rule} has no referers!! #{_cycle}")
+			elsif referers.length == 1
+			    # Internalize the rule if it isn't used anywhere else
+			    reparent.call(rule, node)
+			else
+			    # If all of the referers are either internal rules of the root node, or are external references of the root node,
+			    #  then re-parent the rule in the root node
+			    node_references = external_references_for_node(node, internal_rules, _references)
+			    if referers.all? {|referer| internal_rules[node].include?(referer) or node_references.include?(referer)}
+				reparent.call(rule, node)
+			    else
+				# If the first node of a recursive cycle can't be internalized then the overall grammar has serious issues
+				puts("Cannot internalize '#{rule}' into '#{node}' because it has referers: #{referers}")
+				# raise StandardError.new("Can't internalize '#{rule}' into '#{node}' because it has referers: #{referers}")
+			    end
+			end
+		    end
+		end
+	    end
+	    non_root_rules = orphaned_rules.uniq
 
 	    # Sort the internal rules
 	    internal_rules.transform_values! do |locals|
