@@ -61,7 +61,7 @@ module Parsers
 		    path.push node
 		    _references[node].each(&visit) if _references.key?(node)
 		    path.delete(node)
-		    result.push node
+		    result.push node if _references.key?(node)
 		end
 	    end
 	    _references.keys.each(&visit)
