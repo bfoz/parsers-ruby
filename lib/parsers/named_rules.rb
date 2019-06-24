@@ -118,6 +118,15 @@ module Parsers
 	    [cycles, _references]
 	end
 
+	# Does the rule reference itself? Do any of its internal rules (or their internal rules) reference the rule?
+	# @return [Bool]
+	private def internally_recursive_rule?(rule_name, internal_rules, _references)
+	    is_recursive = ->(_rule_name) do
+		_references.fetch(_rule_name, []).include?(rule_name) || internal_rules.fetch(_rule_name, []).any?(&is_recursive)
+	    end
+	    return is_recursive.call(rule_name)
+	end
+
 	# Find all of the external references for the given rule as well as for all of its internal rules
 	# @return [Array]
 	private def external_references_for_node(rule, internal_rules, _references=nil, path:[])
@@ -139,11 +148,12 @@ module Parsers
 	    end
 	end
 
-	private def internal_rules_to_ruby(rule_type, rule_name, rule, cycles:, internal_rules:)
-	    rule_is_recursive = cycles.key?(rule_name)
+	# @return [Array,String]
+	private def internal_rules_to_ruby(rule_type, rule_name, rule, internal_rules:, _references:)
+	    rule_is_recursive = internally_recursive_rule?(rule_name, internal_rules, _references)
 	    _expand_the_rule = (internal_rules.key?(rule_name) and not internal_rules[rule_name].empty?)
 	    _mapped = rule.map do |element|
-		rule_to_ruby("", element, cycles:cycles, rule_locals:internal_rules).tap do |_rule|
+		rule_to_ruby("", element, rule_locals:internal_rules, _references:_references).tap do |_rule|
 		    _expand_the_rule = true if (Array === _rule)
 		    rule_is_recursive = true if ((Parsers::RecursiveReference === element) and (_rule == rule_name))
 		end
@@ -155,7 +165,7 @@ module Parsers
 		local_rules = []
 		if internal_rules.key?(rule_name)
 		    local_rules = internal_rules[rule_name].map do |local_name|
-			_rule = rule_to_ruby(local_name, @rules[local_name], cycles:cycles, rule_locals:internal_rules)
+			_rule = rule_to_ruby(local_name, @rules[local_name], rule_locals:internal_rules, _references:_references)
 			if Array === _rule
 			    ["\t#{local_name} = #{_rule.first}"] + _rule[1..-1].map {|r| "\t#{r}"}
 			else
@@ -202,7 +212,8 @@ module Parsers
 	    end
 	end
 
-	private def rule_to_ruby(rule_name, rule, cycles:, rule_locals:)
+	# @return [Array,String]
+	private def rule_to_ruby(rule_name, rule, rule_locals:, _references:)
 	    case rule
 		when String
 		    rule.to_s.dump
@@ -210,21 +221,21 @@ module Parsers
 		    if rule.all? {|element| String === element}
 			"'" + rule.to_a.join("' | '") + "'"
 		    else
-			internal_rules_to_ruby('alternation', rule_name, rule, cycles:cycles, internal_rules:rule_locals)
+			internal_rules_to_ruby('alternation', rule_name, rule, internal_rules:rule_locals, _references:_references)
 		    end
 		when Grammar::Concatenation
-		    internal_rules_to_ruby('concatenation', rule_name, rule, cycles:cycles, internal_rules:rule_locals)
+		    internal_rules_to_ruby('concatenation', rule_name, rule, internal_rules:rule_locals, _references:_references)
 
 		when Grammar::Recursion
 		    key = rules.key(rule.grammar)
 		    if key
 			key
 		    else
-			rule_to_ruby(rule_name, rule.grammar, cycles:cycles, rule_locals:rule_locals)
+			rule_to_ruby(rule_name, rule.grammar, rule_locals:rule_locals, _references:_references)
 		    end
 		when Grammar::Repetition
 		    suffix = ruby_repetition_suffix(rule)
-		    _rule = rule_to_ruby(rule_name, rule.grammar, cycles:cycles, rule_locals:rule_locals)
+		    _rule = rule_to_ruby(rule_name, rule.grammar, rule_locals:rule_locals, _references:_references)
 		    if Array === _rule
 			_rule.last.concat(suffix)
 			_rule
@@ -236,7 +247,7 @@ module Parsers
 		when Parsers::RecursiveReference, Parsers::RuleReference
 		    __prefix = (Parsers::RecursiveReference === rule) ? 'RecursiveReference' : 'RuleReference'
 		    if rule_locals.key?(rule_name) and rule_locals[rule_name].include?(rule.rule_name)
-			rule_to_ruby(rule.rule_name, @rules[rule.rule_name], cycles:cycles, rule_locals:rule_locals)
+			rule_to_ruby(rule.rule_name, @rules[rule.rule_name], rule_locals:rule_locals, _references:_references)
 		    else
 			rule.rule_name
 		    end
@@ -292,7 +303,7 @@ module Parsers
 	    end
 
 	    (self.sorted_names(_references)-non_root_rules).map do |rule_name|
-		_ruby = rule_to_ruby(rule_name, @rules[rule_name], cycles:cycles, rule_locals:internal_rules)
+		_ruby = rule_to_ruby(rule_name, @rules[rule_name], rule_locals:internal_rules, _references:_references)
 		if Array === _ruby
 		    _ruby = _ruby.join("\n")
 		end
