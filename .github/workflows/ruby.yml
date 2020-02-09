@@ -1,0 +1,27 @@
+name: Ruby
+
+on: [push]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        ruby-version: [2.5.x, 2.6.x]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Ruby ${{ matrix.ruby-version }}
+      uses: actions/setup-ruby@v1
+      with:
+        ruby-version: ${{ matrix.ruby-version }}
+    - name: Install dependencies
+      run: |
+        git config --global url."https://token:${{ secrets.GITHUB_ACTIONS_API_TOKEN }}@github.com/".insteadOf "https://github.com/"
+        gem install bundler
+        bundle install --jobs 4 --retry 3
+    - name: Test with Rake
+      run: |
+        bundle exec rake
