@@ -108,12 +108,6 @@ module Parsers
 	    _references.keys.each do |node|
 		visit.call(node)
 	    end
-	    cycles.each do |node, _cycles|
-		_cycles.each do |cycle|
-		    # Remove the dependency on the recursive node from the last internal node of the cycle
-		    _references[cycle.last].delete(node)
-		end
-	    end
 
 	    [cycles, _references]
 	end
@@ -129,14 +123,14 @@ module Parsers
 
 	# Find all of the external references for the given rule as well as for all of its internal rules
 	# @return [Array]
-	private def external_references_for_node(rule, internal_rules, _references=nil, path:[])
+	def external_references_for_node(rule, internal_rules, _references=nil, path:[])
 	    _references ||= self.references
-	    __refs = internal_rules[rule].flat_map do |a|
+	    __refs = internal_rules.fetch(rule, []).flat_map do |a|
 		next if path.include?(a)
 		external_references_for_node(a, internal_rules, _references, path:path+[a])
 	    end.compact.uniq
 	    # Combine the arrays in the given order to preserve the dependency ordering
-	    __refs + _references[rule] - internal_rules[rule]
+	    __refs + _references.fetch(rule, []) - internal_rules.fetch(rule, [])
 	end
 
 	# Find all of the rules that refer to node
