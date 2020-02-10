@@ -45,7 +45,7 @@ RSpec.describe Parsers::EBNF do
 	end
 
 	it 'must read a multiply direct left recursive alternation' do
-	    expect(read(rule: '"abc" | rule "def" | rule "xyz"')).to eq({'rule' => Grammar::Concatenation.with('abc', Grammar::Alternation.with('def', 'xyz').any)})
+	    expect(read(rule: '"abc" | rule, "def" | rule, "xyz"')).to eq({'rule' => Grammar::Concatenation.with('abc', Grammar::Alternation.with('def', 'xyz').any)})
 	end
 
 	it 'must read a direct right recursive grammar from a file' do
@@ -142,8 +142,8 @@ RSpec.describe Parsers::EBNF do
 	    rule4 = 'xyz'
 
 	    expect(read(
-		rule1:'"abc" rule3',
-		rule2:'"def" rule4',
+		rule1:'"abc", rule3',
+		rule2:'"def", rule4',
 		rule3:'"xyz"',
 		rule4:'"xyz"'
 	    )).to eq({
