@@ -1,6 +1,7 @@
 require_relative 'parsers/bnf'
 require_relative 'parsers/ebnf'
 require_relative 'parsers/w3c_ebnf'
+require_relative 'parsers/packrat'
 require_relative 'parsers/recursive_descent'
 
 module Parsers
