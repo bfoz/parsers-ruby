@@ -6,7 +6,7 @@ jobs:
   build:
     strategy:
       matrix:
-        ruby-version: [2.5.x, 2.6.x]
+        ruby-version: [2.5.x, 2.6.x, 2.7.x]
         os: [ubuntu-latest, windows-latest, macos-latest]
 
     runs-on: ${{ matrix.os }}
