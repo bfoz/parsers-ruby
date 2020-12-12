@@ -110,6 +110,57 @@ RSpec.shared_examples 'a grammar parser' do
 	    parser.push klass
 	    expect(parser.parse('ab')).to eq([klass.new('a', '', 'b')])
 	end
+
+	context 'Ignore' do
+	    it 'must ignore the ignore-pattern' do
+		klass = Grammar::Concatenation.with('abc', 'def', 'xyz', ignore:/ /)
+		parser.push klass
+		expect(parser.parse('abc def xyz')).to eq([klass.new('abc', 'def', 'xyz')])
+	    end
+
+	    it 'must ignore an optional ignore-pattern' do
+		klass = Grammar::Concatenation.with('abc', 'def', ignore:Grammar::Repetition.any(','))
+		parser.push klass
+		expect(parser.parse('abc,def')).to eq([klass.new('abc', 'def')])
+	    end
+
+	    it 'must ignore an optional Regexp ignore-pattern' do
+		klass = Grammar::Concatenation.with('abc', 'def', ignore:/,*/)
+		parser.push klass
+		expect(parser.parse('abc,def')).to eq([klass.new('abc', 'def')])
+	    end
+
+	    it 'must ignore an optional missing Regexp ignore-pattern' do
+		klass = Grammar::Concatenation.with('abc', 'def', ignore:/,*/)
+		parser.push klass
+		expect(parser.parse('abcdef')).to eq([klass.new('abc', 'def')])
+	    end
+
+	    it 'must not ignore forever' do
+		klass = Grammar::Concatenation.with('abc', 'def', ignore:/,*/)
+		parser.push klass
+		expect(parser.parse('abcxyz')).to eq(nil)
+	    end
+
+	    it 'must ignore before an any-repetition' do
+		klass = Grammar::Concatenation.with('abc', Grammar::Repetition.with('xyz', maximum:nil, minimum:0, ignore:/\s*/), ignore:/\s*/)
+		parser.push klass
+		expect(parser.parse('abc xyz')).to eq([klass.new('abc', ['xyz'])])
+	    end
+
+	    it 'must ignore a trailing ignore after a repetition' do
+		klass = Grammar::Concatenation.with('abc', Grammar::Repetition.with('xyz', maximum:nil, minimum:0, ignore:/\s*/), ignore:/\s*/)
+		parser.push klass
+		expect(parser.parse('abc xyz ')).to eq([klass.new('abc', ['xyz'])])
+	    end
+
+	    it 'must not ignore a leading ignore' do
+		parser.push Grammar::Concatenation.with('abc', 'def', 'xyz', ignore:/ /)
+		input = StringScanner.new(' abc def xyz')
+		expect(parser.parse(input)).to be_nil
+		expect(input.pos).to eq(0)
+	    end
+	end
     end
 
     context 'Grammar::Repetition' do
@@ -178,6 +229,50 @@ RSpec.shared_examples 'a grammar parser' do
 	    klass = Grammar::Concatenation.with('abc')
 	    parser.push klass.repeat(1,3)
 	    expect(parser.parse('abcabcabc')).to eq([[klass.new('abc', location:0), klass.new('abc', location:3), klass.new('abc', location:6)]])
+	end
+
+	context 'Ignore' do
+	    let(:klass) { Grammar::Alternation.with('abc', 'def', 'xyz') }
+
+	    # The input string has a trailing space to ensure that none of the repetition tests
+	    #  consume trailing characters that match the ignore-pattern
+	    let(:input) { StringScanner.new('abc def xyz ') }
+
+	    it 'must ignore the ignore-pattern' do
+		parser.push Grammar::Repetition.with(klass, maximum:nil, minimum:0, ignore:/\s*/)
+		expect(parser.parse(input)).to eq([[klass.new('abc'), klass.new('def'), klass.new('xyz')]])
+		expect(input.pos).to eq(11)
+	    end
+
+	    it 'must accept the maximum' do
+		parser.push Grammar::Repetition.with(klass, maximum:3, minimum:nil, ignore:/\s*/)
+		expect(parser.parse(input)).to eq([[klass.new('abc'), klass.new('def'), klass.new('xyz')]])
+		expect(input.pos).to eq(11)
+	    end
+
+	    it 'must accept less than the maximum' do
+		parser.push Grammar::Repetition.with(klass, maximum:4, minimum:nil, ignore:/\s*/)
+		expect(parser.parse(input)).to eq([[klass.new('abc'), klass.new('def'), klass.new('xyz')]])
+		expect(input.pos).to eq(11)
+	    end
+
+	    it 'must accept no more than the maximum' do
+		parser.push Grammar::Repetition.with(klass, maximum:2, minimum:nil, ignore:/\s*/)
+		expect(parser.parse(input)).to eq([[klass.new('abc'), klass.new('def')]])
+		expect(input.pos).to eq(7)
+	    end
+
+	    it 'must accept the minimum' do
+		parser.push Grammar::Repetition.with(klass, maximum:nil, minimum:3, ignore:/\s*/)
+		expect(parser.parse(input)).to eq([[klass.new('abc'), klass.new('def'), klass.new('xyz')]])
+		expect(input.pos).to eq(11)
+	    end
+
+	    it 'must reject less than the minimum' do
+		parser.push Grammar::Repetition.with(klass, maximum:nil, minimum:4, ignore:/\s*/)
+		expect(parser.parse(input)).to be_nil
+		expect(input.pos).to eq(0)
+	    end
 	end
 
 	context 'at least 0' do
