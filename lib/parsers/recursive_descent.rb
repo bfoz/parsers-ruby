@@ -2,6 +2,8 @@ require 'strscan'
 
 require 'grammar'
 
+require_relative 'context'
+
 module Parsers
     class RecursiveDescent
 	attr_reader :patterns
@@ -15,7 +17,7 @@ module Parsers
 	    input = StringScanner.new(input) if input.is_a?(String)
 
 	    forest = self.roots.map do |root|
-		visit(input, root)
+		visit(input, root, context:Context.new)
 	    end.compact
 
 	    forest unless forest.empty?
@@ -31,17 +33,18 @@ module Parsers
 
 	# @param [StringScanner] The input to parse
 	# @param [Grammar] The pattern to attempt to parse
-	private def visit(input, pattern)
+	private def visit(input, pattern, context:)
 	    case pattern
 		when Range
 		    # FIXME This is a terrible way to do this
-		    visit(input, /[#{pattern.first}-#{pattern.last}]/)
+		    visit(input, /[#{pattern.first}-#{pattern.last}]/, context:context)
 		when Regexp
 		    input.matched if input.scan(Regexp.new(pattern))
 		when String
 		    input.matched if input.scan(Regexp.new(Regexp.escape(pattern)))
 
 		when Grammar::Alternation
+		    context = context.push_pattern(pattern)
 		    _position = input.pos
 		    longest_match = nil
 		    position_after_longest_match = _position
@@ -53,7 +56,7 @@ module Parsers
 				longest_match = element
 			    end
 			else
-			    match = visit(input, element)
+			    match = visit(input, element, context:context)
 			    if match and (input.pos > position_after_longest_match)
 				position_after_longest_match = input.pos
 				longest_match = match
@@ -66,12 +69,13 @@ module Parsers
 		    end
 
 		when Grammar::Concatenation
+		    context = context.push_pattern(pattern)
 		    position = input.pos
 		    redoing = true	# Start off assuming a redo to prevent the ignore pattern from matching before the first element
 		    matches = pattern.elements.map do |element|
-			a = visit(input, element)
+			a = visit(input, element, context:context)
 			if (not a) and (not element.is_a?(Grammar::Recursion)) and (not (element.respond_to?(:optional?) and element.optional?))
-			    if (not redoing) && pattern.ignore && visit(input, pattern.ignore)
+			    if (not redoing) && pattern.ignore && visit(input, pattern.ignore, context:context)
 				redoing = true
 				redo	# Skip the "ignore" match and try the element again
 			    end
@@ -84,17 +88,33 @@ module Parsers
 		    end
 		    pattern.new(*matches, location:position)
 
+		when Grammar::Latch
+		    if context.key?(pattern)
+			latch = context[pattern]
+			unless latch.nil?
+			    return case latch
+				when String then visit(input, latch, context:context)
+				else
+				    a = visit(input, pattern.grammar, context:context)
+				    if a and (latch == a)
+					a
+				    end
+			    end
+			end
+		    end
+		    context[pattern] = visit(input, pattern.grammar, context:context).tap {|a| puts "Saving latch match #{a}"}
+
 		when Grammar::Repetition
 		    result = []
 		    if pattern.minimum&.nonzero?
 			redoing = nil
 			position = input.pos
 			pattern.minimum.times do |i|
-			    a = visit(input, pattern.grammar)
+			    a = visit(input, pattern.grammar, context:context)
 			    if a
 				result.push(a)
 			    else
-				if (not redoing) && pattern.ignore && visit(input, pattern.ignore)
+				if (not redoing) && pattern.ignore && visit(input, pattern.ignore, context:context)
 				    redoing = true
 				    redo	# Skip the "ignore" match and try the element again
 				end
@@ -110,7 +130,7 @@ module Parsers
 		    if pattern.maximum
 			(pattern.maximum - (pattern.minimum or 0)).times do
 			    position = input.pos
-			    a = visit(input, pattern.grammar)
+			    a = visit(input, pattern.grammar, context:context)
 			    if a
 				result.push(a)
 			    else
@@ -121,7 +141,7 @@ module Parsers
 				    position = redoing		# Backtrack to before the ignore pattern was matched
 				elsif pattern.ignore
 				    pre_ignore_position = input.pos
-				    if visit(input, pattern.ignore)
+				    if visit(input, pattern.ignore, context:context)
 					redoing = pre_ignore_position	# Save the input position from before the ignore pattern in case we need it later
 					redo	# Skip the "ignore" match and try the element again
 				    end
@@ -137,7 +157,7 @@ module Parsers
 			# No max limit, so go until failure or EOS
 			loop do
 			    position = input.pos
-			    a = visit(input, pattern.grammar)
+			    a = visit(input, pattern.grammar, context:context)
 			    if a
 				result.push(a)
 			    else
@@ -148,7 +168,7 @@ module Parsers
 				    position = redoing		# Backtrack to before the ignore pattern was matched
 				elsif pattern.ignore
 				    pre_ignore_position = input.pos
-				    if visit(input, pattern.ignore)
+				    if visit(input, pattern.ignore, context:context)
 					redoing = pre_ignore_position	# Save the input position from before the ignore pattern in case we need it later
 					redo	# Skip the "ignore" match and try the element again
 				    end
@@ -169,7 +189,7 @@ module Parsers
 		    end
 
 		when Grammar::Recursion
-		    visit(input, pattern.grammar)
+		    visit(input, pattern.grammar, context:context)
 
 		else
 		    raise ArgumentError.new("Unknown pattern: #{pattern}")

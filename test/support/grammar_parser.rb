@@ -163,6 +163,44 @@ RSpec.shared_examples 'a grammar parser' do
 	end
     end
 
+    context 'Grammar::Latch' do
+	it 'must match a simple latch' do
+	    latch = Grammar::Latch.with('abc')
+	    klass = Grammar::Concatenation.with(latch, latch)
+	    parser.push klass
+	    expect(parser.parse('abcabc')).to eq([klass.new('abc', 'abc')])
+	    expect(parser.parse('abcxyz')).to be_nil
+	end
+
+	it 'must match a latched Alternation' do
+	    latch = Grammar::Latch.with(Grammar::Alternation.with('abc', 'xyz'))
+	    klass = Grammar::Concatenation.with(latch, latch)
+	    parser.push klass
+	    expect(parser.parse('abcabc')).to eq([klass.new('abc', 'abc')])
+	    expect(parser.parse('xyzxyz')).to eq([klass.new('xyz', 'xyz')])
+	    expect(parser.parse('abcxyz')).to be_nil
+	end
+
+	it 'must match a nested latch in an outer context' do
+	    latch = Grammar::Latch.with(Grammar::Alternation.with('abc', 'xyz'))
+	    inner_klass = Grammar::Concatenation.with(latch, 'def')
+	    outer_klass = Grammar::Concatenation.with(inner_klass, inner_klass, context:{latch => nil})
+	    parser.push outer_klass
+	    expect(parser.parse('abcdefabcdef')).to eq([outer_klass.new(inner_klass.new('abc', 'def'), inner_klass.new('abc', 'def'))])
+	    expect(parser.parse('xyzdefxyzdef')).to eq([outer_klass.new(inner_klass.new('xyz', 'def'), inner_klass.new('xyz', 'def'))])
+	    expect(parser.parse('abcdefxyzdef')).to be_nil
+	end
+
+	it 'must match a nested latch in an inner context' do
+	    latch = Grammar::Latch.with(Grammar::Alternation.with('abc', 'xyz'))
+	    inner_klass = Grammar::Concatenation.with(latch, latch, context:{latch => nil})
+	    outer_klass = Grammar::Concatenation.with(inner_klass, inner_klass)
+	    parser.push outer_klass
+	    expect(parser.parse('abcabcxyzxyz')).to eq([outer_klass.new(inner_klass.new('abc', 'abc'), inner_klass.new('xyz', 'xyz'))])
+	    expect(parser.parse('abcxyzabcxyz')).to be_nil
+	end
+    end
+
     context 'Grammar::Repetition' do
 	it 'must greedily match a star-repeated Alternation' do
 	    klass = Grammar::Alternation.with('abc', 'def')
