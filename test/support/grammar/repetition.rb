@@ -110,6 +110,50 @@ RSpec.shared_examples 'Grammar::Repetition' do
 	end
     end
 
+    context 'Leading Ignore' do
+	let(:klass) { Grammar::Alternation.with('abc', 'def', 'xyz') }
+
+	# The input string has a trailing space to ensure that none of the repetition tests
+	#  consume trailing characters that match the ignore-pattern
+	let(:input) { StringScanner.new(' abc def xyz ') }
+
+	it 'must reject the ignore-pattern' do
+	    parser.push Grammar::Repetition.any(klass, ignore:/\s*/)
+	    expect(parser.parse(input)).to eq([[]])
+	    expect(input.pos).to eq(0)
+	end
+
+	it 'must reject the maximum' do
+	    parser.push Grammar::Repetition.at_most(3, klass, ignore:/\s*/)
+	    expect(parser.parse(input)).to eq([[]])
+	    expect(input.pos).to eq(0)
+	end
+
+	it 'must reject less than the maximum' do
+	    parser.push Grammar::Repetition.at_most(4, klass, ignore:/\s*/)
+	    expect(parser.parse(input)).to eq([[]])
+	    expect(input.pos).to eq(0)
+	end
+
+	it 'must accept no more than the maximum' do
+	    parser.push Grammar::Repetition.at_most(2, klass, ignore:/\s*/)
+	    expect(parser.parse(input)).to eq([[]])
+	    expect(input.pos).to eq(0)
+	end
+
+	it 'must accept the minimum' do
+	    parser.push Grammar::Repetition.with(klass, maximum:nil, minimum:3, ignore:/\s*/)
+	    expect(parser.parse(input)).to be_nil
+	    expect(input.pos).to eq(0)
+	end
+
+	it 'must reject less than the minimum' do
+	    parser.push Grammar::Repetition.with(klass, maximum:nil, minimum:4, ignore:/\s*/)
+	    expect(parser.parse(input)).to be_nil
+	    expect(input.pos).to eq(0)
+	end
+    end
+
     context 'at least 0' do
 	it 'must greedily match a nested Alternation' do
 	    repeat_klass = Grammar::Alternation.with('def', 'ghi')

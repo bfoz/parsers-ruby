@@ -73,18 +73,33 @@ module Parsers
 		    position = input.pos
 		    redoing = true	# Start off assuming a redo to prevent the ignore pattern from matching before the first element
 		    matches = pattern.elements.map do |element|
-			a = visit(input, element, context:context)
-			if (not a) and (not element.is_a?(Grammar::Recursion)) and (not (element.respond_to?(:optional?) and element.optional?))
-			    if (not redoing) && pattern.ignore && visit(input, pattern.ignore, context:context)
-				redoing = true
-				redo	# Skip the "ignore" match and try the element again
+			_match = visit(input, element, context:context)
+			if failed_or_empty = ((not _match) or (_match.respond_to?(:empty?) and _match.empty?))
+			    allowed_to_fail = (
+				(element.respond_to?(:optional?) and element.optional?) or
+				(element.respond_to?(:at_least?) and element.at_least?(0)) or
+				(element.respond_to?(:empty?) and element.empty?) or
+				((Regexp === element) and (element =~ ''))	# If the element is a regexp that can match nothing
+			    )
+			    if allowed_to_fail
+				if (not element.is_a?(Grammar::Recursion))
+				    if (not redoing) && pattern.ignore && visit(input, pattern.ignore, context:context)
+					redoing = true
+					redo	# Skip the "ignore" match and try the element again
+				    end
+				end
+			    elsif pattern.ignore and (not redoing)
+				if visit(input, pattern.ignore, context:context)
+				    redoing = true
+				    redo	# Skip the "ignore" match and try the element again
+				end
+			    else
+				input.pos = position 	# Backtracking
+				return
 			    end
-
-			    input.pos = position 	# Backtracking
-			    return
 			end
 			redoing = nil
-			a
+			_match
 		    end
 		    pattern.new(*matches, location:position)
 
@@ -105,9 +120,9 @@ module Parsers
 		    context[pattern] = visit(input, pattern.grammar, context:context).tap {|a| puts "Saving latch match #{a}"}
 
 		when Grammar::Repetition
+		    redoing = input.pos	# Start off assuming a redo to prevent the ignore pattern from matching before the first element
 		    result = []
 		    if pattern.minimum&.nonzero?
-			redoing = nil
 			position = input.pos
 			pattern.minimum.times do |i|
 			    a = visit(input, pattern.grammar, context:context)
@@ -126,7 +141,6 @@ module Parsers
 			end
 		    end
 
-		    redoing = nil
 		    if pattern.maximum
 			(pattern.maximum - (pattern.minimum or 0)).times do
 			    position = input.pos
