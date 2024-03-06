@@ -117,7 +117,7 @@ module Parsers
 			    end
 			end
 		    end
-		    context[pattern] = visit(input, pattern.grammar, context:context).tap {|a| puts "Saving latch match #{a}"}
+		    context[pattern] = visit(input, pattern.grammar, context:context)
 
 		when Grammar::Repetition
 		    redoing = input.pos	# Start off assuming a redo to prevent the ignore pattern from matching before the first element
