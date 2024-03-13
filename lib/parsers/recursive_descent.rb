@@ -82,16 +82,27 @@ module Parsers
 				((Regexp === element) and (element =~ ''))	# If the element is a regexp that can match nothing
 			    )
 			    if allowed_to_fail
-				if (not element.is_a?(Grammar::Recursion))
-				    if (not redoing) && pattern.ignore && visit(input, pattern.ignore, context:context)
-					redoing = true
-					redo	# Skip the "ignore" match and try the element again
+			    	if redoing
+			    	    # If it was allowed to fail, and the ignore pattern matched,
+			    	    #  and the pattern was tried again, and failed, but it is allowed to fail,
+			    	    #  then report the successful-failure in the normal fashion
+			    	else
+				    if (not element.is_a?(Grammar::Recursion))
+					if pattern.ignore && visit(input, pattern.ignore, context:context)
+					    redoing = true
+					    redo	# Skip the input that matched the ignore-pattern and try the element again
+					end
 				    end
-				end
+			    	end
 			    elsif pattern.ignore and (not redoing)
 				if visit(input, pattern.ignore, context:context)
 				    redoing = true
 				    redo	# Skip the "ignore" match and try the element again
+				else
+				    # If the element failed, and wasn't allowed to fail, and the ignore pattern also failed,
+				    #  then this is a proper failure and needs to be treated as such
+				    input.pos = position 	# Backtracking
+				    return
 				end
 			    else
 				input.pos = position 	# Backtracking
